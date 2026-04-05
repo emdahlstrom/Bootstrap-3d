@@ -61,11 +61,10 @@ def mat_transparent(name, color, alpha=0.3):
     bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Roughness"].default_value = 0.05
     bsdf.inputs["Metallic"].default_value = 0.0
-    # Transmission for glass-like transparency (exports to KHR_materials_transmission)
-    bsdf.inputs["Transmission Weight"].default_value = 1.0 - alpha
+    # Use alpha transparency (better Three.js support than transmission)
+    bsdf.inputs["Alpha"].default_value = alpha + 0.15
     bsdf.inputs["IOR"].default_value = 1.45
-    # Alpha for Three.js fallback transparency
-    bsdf.inputs["Alpha"].default_value = alpha
+    bsdf.inputs["Specular IOR Level"].default_value = 0.8
     return mat
 
 
@@ -79,9 +78,9 @@ def mat_sparkle(name, color):
     bsdf.inputs["Metallic"].default_value = 0.3
     # Emission for glow (exports to emissiveFactor in glTF)
     bsdf.inputs["Emission Color"].default_value = color
-    bsdf.inputs["Emission Strength"].default_value = 5.0
+    bsdf.inputs["Emission Strength"].default_value = 1.0
     # Some transmission for crystal look
-    bsdf.inputs["Transmission Weight"].default_value = 0.5
+    bsdf.inputs["Transmission Weight"].default_value = 0.3
     bsdf.inputs["IOR"].default_value = 2.4
     # Specular for diamond-like sparkle
     bsdf.inputs["Specular IOR Level"].default_value = 1.0

@@ -262,10 +262,7 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
-        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-        import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+        // Post-processing removed — simpler is more compatible across devices
 
         // --- Renderer ---
         const canvas = document.getElementById('canvas-3d');
@@ -376,18 +373,7 @@
         grid.material.transparent = true;
         scene.add(grid);
 
-        // --- Post-processing (bloom for sparkles) ---
-        const composer = new EffectComposer(renderer);
-        composer.addPass(new RenderPass(scene, camera));
-
-        const bloomPass = new UnrealBloomPass(
-            new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.15,  // bloom strength (subtle)
-            0.3,   // radius
-            1.5    // threshold - only very bright emissive materials bloom
-        );
-        composer.addPass(bloomPass);
-        composer.addPass(new OutputPass());
+        // No post-processing — direct rendering for best mobile compatibility
 
         // --- Model loading ---
         let model = null;
@@ -411,24 +397,18 @@
                 // Set environment map intensity for nice reflections
                 mat.envMapIntensity = 0.5;
 
-                // Handle transparent materials (transmission or low alpha)
-                if (mat.transmission && mat.transmission > 0.1) {
-                    mat.transparent = true;
-                    mat.opacity = 1.0;
-                    mat.thickness = 0.5;
-                    mat.ior = mat.ior || 1.45;
-                    mat.roughness = Math.max(mat.roughness, 0.05);
-                    mat.side = THREE.DoubleSide;
-                    mat.depthWrite = false;
-                } else if (mat.opacity < 0.95) {
+                // Handle transparent materials
+                if (mat.opacity < 0.95) {
                     mat.transparent = true;
                     mat.side = THREE.DoubleSide;
                     mat.depthWrite = false;
+                    // Ensure we can actually see the color
+                    mat.opacity = Math.max(mat.opacity, 0.25);
                 }
 
-                // Keep emissive materials (sparkle gems) at reasonable levels
-                if (mat.emissive && mat.emissiveIntensity > 1.0) {
-                    mat.emissiveIntensity = Math.min(mat.emissiveIntensity, 3.0);
+                // Cap emissive so gems glow but don't blow out
+                if (mat.emissive && mat.emissiveIntensity > 0) {
+                    mat.emissiveIntensity = Math.min(mat.emissiveIntensity, 1.5);
                 }
 
                 mat.needsUpdate = true;
@@ -533,7 +513,6 @@
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
             renderer.setSize(w, h);
-            composer.setSize(w, h);
         });
 
         // --- Animate ---
@@ -543,7 +522,7 @@
                 model.rotation.y += 0.004;
             }
             controls.update();
-            composer.render();
+            renderer.render(scene, camera);
         }
         animate();
     </script>
