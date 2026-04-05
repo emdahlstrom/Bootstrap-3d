@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bootstrap 3D - Meadow Game</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; overflow: hidden; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        .info {
+            position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
+            color: #fff; font-family: sans-serif; font-size: 0.85rem;
+            background: rgba(0,0,0,0.5); padding: 0.5rem 1rem; border-radius: 6px;
+            pointer-events: none; transition: opacity 2s;
+        }
+        #event-toast {
+            position: fixed; top: 3rem; left: 50%; transform: translateX(-50%);
+            color: #fff; font-family: sans-serif; font-size: 0.9rem; font-weight: 600;
+            background: rgba(0,0,0,0.7); padding: 0.6rem 1.2rem; border-radius: 8px;
+            pointer-events: none; opacity: 0; transition: opacity 0.5s; z-index: 10;
+        }
+        .controls {
+            position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 0.5rem;
+            background: rgba(0,0,0,0.6); padding: 0.5rem 1rem; border-radius: 8px;
+        }
+        .controls button, .controls a {
+            background: #333; color: #eee; border: 1px solid #555;
+            padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer;
+            font-size: 0.8rem; text-decoration: none;
+        }
+        .controls button:hover, .controls a:hover { background: #555; }
+        .controls button.active { background: #2563eb; border-color: #3b82f6; }
+    </style>
+</head>
+<body>
+    <div class="info" id="info">Drag to orbit · Scroll to zoom</div>
+    <div id="event-toast"></div>
+    <canvas id="canvas"></canvas>
+    <div class="controls">
+        <a href="../index.html">&larr; Back</a>
+        <button id="btn-spin" class="active">Auto Orbit</button>
+        <button id="btn-speed">Speed: 1.5x</button>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
