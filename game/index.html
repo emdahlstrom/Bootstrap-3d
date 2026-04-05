@@ -32,12 +32,67 @@
         }
         .controls button:hover, .controls a:hover { background: #555; }
         .controls button.active { background: #2563eb; border-color: #3b82f6; }
+
+        /* Player directional controls */
+        #player-controls {
+            display: none;
+            position: fixed; bottom: 5rem; right: 1rem;
+            flex-direction: column; align-items: center; gap: 0.3rem;
+            z-index: 20; touch-action: none;
+        }
+        #player-controls .row { display: flex; gap: 0.3rem; }
+        #player-controls button {
+            width: 3.2rem; height: 3.2rem;
+            background: rgba(40,40,50,0.85); color: #fff; border: 1px solid #555;
+            border-radius: 8px; font-size: 1.4rem; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            -webkit-user-select: none; user-select: none; touch-action: none;
+        }
+        #player-controls button:active { background: #2563eb; }
+        #player-side-controls {
+            position: fixed; bottom: 5rem; left: 1rem;
+            display: none; flex-direction: column; gap: 0.4rem;
+            z-index: 20;
+        }
+        #player-side-controls button {
+            padding: 0.6rem 1rem; background: rgba(40,40,50,0.85);
+            color: #fff; border: 1px solid #555; border-radius: 8px;
+            font-size: 0.85rem; cursor: pointer; -webkit-user-select: none; user-select: none;
+        }
+        #player-side-controls button:active, #player-side-controls button.active { background: #2563eb; }
+        #btn-exit-animal {
+            display: none; position: fixed; top: 1rem; right: 1rem;
+            background: rgba(180,40,40,0.85); color: #fff; border: 1px solid #a33;
+            padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.85rem;
+            cursor: pointer; z-index: 20;
+        }
     </style>
 </head>
 <body>
-    <div class="info" id="info">Drag to orbit · Scroll to zoom</div>
+    <div class="info" id="info">Tap an animal to control it · Drag to orbit · Scroll to zoom</div>
     <div id="event-toast"></div>
     <canvas id="canvas"></canvas>
+
+    <!-- Exit button -->
+    <button id="btn-exit-animal">✕ Exit Animal</button>
+
+    <!-- Directional pad -->
+    <div id="player-controls">
+        <div class="row"><button id="btn-up">▲</button></div>
+        <div class="row">
+            <button id="btn-left">◀</button>
+            <button id="btn-jump">⬆</button>
+            <button id="btn-right">▶</button>
+        </div>
+        <div class="row"><button id="btn-down">▼</button></div>
+    </div>
+
+    <!-- Side controls -->
+    <div id="player-side-controls">
+        <button id="btn-run">🚶 Walk</button>
+    </div>
+
+    <!-- Bottom bar -->
     <div class="controls">
         <a href="../index.html">&larr; Back</a>
         <button id="btn-spin" class="active">Auto Orbit</button>

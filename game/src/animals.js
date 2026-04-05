@@ -27,7 +27,6 @@ export function createDeer(entityManager, scene, loader, gltf, spawnPos) {
     vehicle._mixer = null;
     vehicle._grazeTimer = 0;
 
-    // Animations
     if (gltf.animations.length > 0) {
         const mixer = new THREE.AnimationMixer(model);
         const walkClip = gltf.animations.find(a => a.name.includes('Walk'));
@@ -37,9 +36,9 @@ export function createDeer(entityManager, scene, loader, gltf, spawnPos) {
             action.play();
         }
         vehicle._mixer = mixer;
+        vehicle._animations = gltf.animations;
     }
 
-    // Steering behaviors
     const wander = new YUKA.WanderBehavior();
     wander.jitter = 5;
     wander.radius = 3;
@@ -87,6 +86,7 @@ export function createFox(entityManager, scene, loader, gltf, spawnPos) {
             action.play();
         }
         vehicle._mixer = mixer;
+        vehicle._animations = gltf.animations;
     }
 
     const wander = new YUKA.WanderBehavior();
@@ -113,7 +113,7 @@ export function updateAnimals(entityManager, delta) {
     let nearestDeerDist = Infinity;
 
     for (const entity of entities) {
-        if (!entity._type) continue;
+        if (!entity._type || entity._playerControlled) continue;
 
         // Terrain following
         const pos = entity.position;

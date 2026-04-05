@@ -9,6 +9,7 @@ import { createHunter, updateHunter } from './hunter.js';
 import { createWeatherSystem } from './weather.js';
 import { createEventSystem } from './events.js';
 import { loadAllNature } from './nature.js';
+import { createPlayerController } from './player.js';
 import { rand } from './utils.js';
 
 // ─── Renderer ───
@@ -62,6 +63,10 @@ const weatherSystem = createWeatherSystem(scene, ambientLight, sunLight, bgCtx);
 const hunter = createHunter(entityManager, scene);
 const eventSystem = createEventSystem(entityManager, weatherSystem, hunter);
 
+// ─── Player Controller ───
+const player = createPlayerController(camera, controls, entityManager);
+canvas.addEventListener('pointerdown', player.onPointerDown);
+
 // ─── Load Assets ───
 const loader = new GLTFLoader();
 
@@ -114,12 +119,15 @@ function animate() {
     // Hunter
     updateHunter(hunter, entityManager, delta);
 
+    // Player control
+    player.update(delta);
+
     // Weather + events
     weatherSystem.update(delta);
     eventSystem.update(rawDelta);
 
-    // Camera orbit follows terrain
-    if (autoOrbit) {
+    // Camera orbit follows terrain (only when not controlling an animal)
+    if (autoOrbit && !player.state.active) {
         const t = clock.elapsedTime * 0.12;
         const cx = Math.cos(t) * 25;
         const cz = Math.sin(t) * 25;
@@ -144,6 +152,66 @@ document.getElementById('btn-speed').addEventListener('click', (e) => {
     speedIdx = (speedIdx + 1) % speeds.length;
     speedMultiplier = speeds[speedIdx];
     e.target.textContent = `Speed: ${speedMultiplier}x`;
+});
+
+// Player control buttons
+document.getElementById('btn-exit-animal')?.addEventListener('click', () => player.release());
+
+// Touch/click directional buttons
+for (const [id, key] of [['btn-up','forward'],['btn-down','backward'],['btn-left','left'],['btn-right','right']]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const setInput = (val) => { player.state.input[key] = val; };
+    el.addEventListener('pointerdown', (e) => { e.preventDefault(); setInput(true); });
+    el.addEventListener('pointerup', () => setInput(false));
+    el.addEventListener('pointerleave', () => setInput(false));
+}
+document.getElementById('btn-jump')?.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    player.state.input.jump = true;
+});
+document.getElementById('btn-run')?.addEventListener('click', (e) => {
+    player.state.running = !player.state.running;
+    e.target.classList.toggle('active', player.state.running);
+    e.target.textContent = player.state.running ? '🏃 Run' : '🚶 Walk';
+    // Switch animation
+    if (player.state.entity?._mixer) {
+        const name = player.state.running ? 'Gallop' : 'Walk';
+        const mixer = player.state.entity._mixer;
+        mixer.stopAllAction();
+        const clip = player.state.entity._animations?.find(a => a.name.includes(name));
+        if (clip) {
+            const action = mixer.clipAction(clip);
+            action.timeScale = player.state.running ? 1.8 : 1.5;
+            action.play();
+        }
+    }
+});
+
+// Keyboard controls (for desktop)
+window.addEventListener('keydown', (e) => {
+    if (!player.state.active) return;
+    if (e.key === 'w' || e.key === 'ArrowUp') player.state.input.forward = true;
+    if (e.key === 's' || e.key === 'ArrowDown') player.state.input.backward = true;
+    if (e.key === 'a' || e.key === 'ArrowLeft') player.state.input.left = true;
+    if (e.key === 'd' || e.key === 'ArrowRight') player.state.input.right = true;
+    if (e.key === ' ') player.state.input.jump = true;
+    if (e.key === 'Shift') {
+        player.state.running = true;
+        document.getElementById('btn-run')?.classList.add('active');
+    }
+    if (e.key === 'Escape') player.release();
+});
+window.addEventListener('keyup', (e) => {
+    if (e.key === 'w' || e.key === 'ArrowUp') player.state.input.forward = false;
+    if (e.key === 's' || e.key === 'ArrowDown') player.state.input.backward = false;
+    if (e.key === 'a' || e.key === 'ArrowLeft') player.state.input.left = false;
+    if (e.key === 'd' || e.key === 'ArrowRight') player.state.input.right = false;
+    if (e.key === 'Shift') {
+        player.state.running = false;
+        const btn = document.getElementById('btn-run');
+        if (btn) { btn.classList.remove('active'); btn.textContent = '🚶 Walk'; }
+    }
 });
 
 window.addEventListener('resize', () => {
