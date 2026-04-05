@@ -198,13 +198,11 @@ const obstacles = []; // { position: Vector3, radius: number }
 // --- Load helpers ---
 const loader = new GLTFLoader();
 const clock = new THREE.Clock();
-const mixers = [];
+const rand = (min, max) => min + Math.random() * (max - min);
 
-// Boid animals
 const boids = [];
-const BOUNDS = 18; // meadow radius
+const BOUNDS = 18;
 
-// --- Boids parameters ---
 const BOID = {
     separationDist: 3.0,
     separationWeight: 2.5,
@@ -216,313 +214,245 @@ const BOID = {
     wanderWeight: 0.4,
     maxSpeed: 3.0,
     maxForce: 1.5,
-    // Fox predator behavior
     fleeDistance: 8.0,
     fleeWeight: 4.0,
     chaseWeight: 1.2,
     chaseDistance: 15.0,
+    obstacleAvoidDist: 3.0,
+    obstacleRepulsion: 4.0,
+    slopeThreshold: 0.2,
 };
+
+// Reusable Vector3s to avoid per-frame allocations
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
 
 class Boid {
     constructor(model, mixer, type = 'deer') {
         this.model = model;
         this.mixer = mixer;
-        this.type = type; // 'deer' or 'fox'
+        this.type = type;
         this.velocity = new THREE.Vector3(rand(-1, 1), 0, rand(-1, 1)).normalize().multiplyScalar(1.5);
         this.acceleration = new THREE.Vector3();
         this.maxSpeed = type === 'fox' ? BOID.maxSpeed * 1.4 : BOID.maxSpeed;
         this.maxForce = BOID.maxForce;
         this.wanderAngle = rand(0, Math.PI * 2);
+        // Cached terrain data (computed once per frame in update)
+        this._normal = new THREE.Vector3();
     }
 
-    applyForce(force) {
-        this.acceleration.add(force);
+    seek(target, out) {
+        out.subVectors(target, this.model.position);
+        out.y = 0;
+        out.normalize().multiplyScalar(this.maxSpeed).sub(this.velocity);
+        out.clampLength(0, this.maxForce);
+        return out;
     }
 
-    // Steer towards a target position
-    seek(target) {
-        const desired = new THREE.Vector3().subVectors(target, this.model.position);
-        desired.y = 0;
-        desired.normalize().multiplyScalar(this.maxSpeed);
-        const steer = new THREE.Vector3().subVectors(desired, this.velocity);
-        steer.clampLength(0, this.maxForce);
-        return steer;
-    }
+    // Single-pass neighbor computation: separation + alignment + cohesion + flee/chase
+    computeFlocking(allBoids) {
+        const sepSteer = _v1.set(0, 0, 0);
+        const avgVel = _v2.set(0, 0, 0);
+        const center = _v3.set(0, 0, 0);
+        let sepCount = 0, alignCount = 0, cohereCount = 0;
+        let nearestDeer = null, nearestDeerDist = Infinity;
 
-    // Flee from a position
-    flee(target) {
-        return this.seek(target).negate();
-    }
-
-    // Separation: steer away from nearby same-type boids
-    separate(boids) {
-        const steer = new THREE.Vector3();
-        let count = 0;
-        for (const other of boids) {
+        for (const other of allBoids) {
             if (other === this) continue;
-            const d = this.model.position.distanceTo(other.model.position);
-            if (d > 0 && d < BOID.separationDist) {
-                const diff = new THREE.Vector3().subVectors(this.model.position, other.model.position);
-                diff.y = 0;
-                diff.normalize().divideScalar(d); // weight by distance
-                steer.add(diff);
-                count++;
-            }
-        }
-        if (count > 0) {
-            steer.divideScalar(count);
-            steer.normalize().multiplyScalar(this.maxSpeed);
-            steer.sub(this.velocity);
-            steer.clampLength(0, this.maxForce);
-        }
-        return steer;
-    }
-
-    // Alignment: steer towards average heading of nearby same-type boids
-    align(boids) {
-        const avg = new THREE.Vector3();
-        let count = 0;
-        for (const other of boids) {
-            if (other === this || other.type !== this.type) continue;
-            const d = this.model.position.distanceTo(other.model.position);
-            if (d > 0 && d < BOID.alignmentDist) {
-                avg.add(other.velocity);
-                count++;
-            }
-        }
-        if (count > 0) {
-            avg.divideScalar(count);
-            avg.normalize().multiplyScalar(this.maxSpeed);
-            const steer = new THREE.Vector3().subVectors(avg, this.velocity);
-            steer.clampLength(0, this.maxForce);
-            return steer;
-        }
-        return new THREE.Vector3();
-    }
-
-    // Cohesion: steer towards center of nearby same-type boids
-    cohere(boids) {
-        const center = new THREE.Vector3();
-        let count = 0;
-        for (const other of boids) {
-            if (other === this || other.type !== this.type) continue;
-            const d = this.model.position.distanceTo(other.model.position);
-            if (d > 0 && d < BOID.cohesionDist) {
-                center.add(other.model.position);
-                count++;
-            }
-        }
-        if (count > 0) {
-            center.divideScalar(count);
-            return this.seek(center);
-        }
-        return new THREE.Vector3();
-    }
-
-    // Stay within bounds
-    boundaries() {
-        const pos = this.model.position;
-        const steer = new THREE.Vector3();
-        const margin = 3;
-        const limit = BOUNDS - margin;
-        if (pos.x > limit) steer.x = -BOID.boundaryWeight;
-        if (pos.x < -limit) steer.x = BOID.boundaryWeight;
-        if (pos.z > limit) steer.z = -BOID.boundaryWeight;
-        if (pos.z < -limit) steer.z = BOID.boundaryWeight;
-        return steer;
-    }
-
-    // Avoid obstacle collisions (trees, rocks)
-    avoidObstacles() {
-        const steer = new THREE.Vector3();
-        const avoidDist = 3.0;
-        for (const obs of obstacles) {
-            const dx = this.model.position.x - obs.position.x;
-            const dz = this.model.position.z - obs.position.z;
+            const dx = this.model.position.x - other.model.position.x;
+            const dz = this.model.position.z - other.model.position.z;
             const d = Math.sqrt(dx * dx + dz * dz);
-            const minDist = obs.radius + avoidDist;
-            if (d < minDist && d > 0.01) {
-                // Push away, stronger when closer
-                const strength = (1 - d / minDist) * 4.0;
-                steer.x += (dx / d) * strength;
-                steer.z += (dz / d) * strength;
+
+            // Separation (all types)
+            if (d > 0 && d < BOID.separationDist) {
+                sepSteer.x += (dx / d) / d;
+                sepSteer.z += (dz / d) / d;
+                sepCount++;
+            }
+
+            if (this.type === 'fox') {
+                // Track nearest deer for chasing
+                if (other.type === 'deer' && d < nearestDeerDist) {
+                    nearestDeerDist = d;
+                    nearestDeer = other;
+                }
+            } else {
+                // Deer flocking (same-type only)
+                if (other.type === this.type) {
+                    if (d > 0 && d < BOID.alignmentDist) {
+                        avgVel.x += other.velocity.x;
+                        avgVel.z += other.velocity.z;
+                        alignCount++;
+                    }
+                    if (d > 0 && d < BOID.cohesionDist) {
+                        center.x += other.model.position.x;
+                        center.z += other.model.position.z;
+                        cohereCount++;
+                    }
+                }
+                // Flee from foxes
+                if (other.type === 'fox' && d < BOID.fleeDistance) {
+                    const fleeMult = BOID.fleeWeight * (1 - d / BOID.fleeDistance);
+                    this.acceleration.x += (dx / d) * fleeMult;
+                    this.acceleration.z += (dz / d) * fleeMult;
+                }
             }
         }
-        return steer;
-    }
 
-    // Slope force: slide downhill slightly, avoid steep climbs
-    slopeForce() {
-        const pos = this.model.position;
-        const normal = getTerrainNormal(pos.x, pos.z);
-        // Project normal onto XZ plane = downhill direction
-        const downhill = new THREE.Vector3(-normal.x, 0, -normal.z);
-        const steepness = downhill.length();
-        // Slow down on steep slopes, push downhill
-        if (steepness > 0.2) {
-            return downhill.normalize().multiplyScalar(steepness * 2.0);
+        // Apply separation
+        if (sepCount > 0) {
+            sepSteer.divideScalar(sepCount).normalize().multiplyScalar(this.maxSpeed).sub(this.velocity);
+            sepSteer.clampLength(0, this.maxForce);
+            this.acceleration.x += sepSteer.x * BOID.separationWeight;
+            this.acceleration.z += sepSteer.z * BOID.separationWeight;
         }
-        return new THREE.Vector3();
-    }
 
-    // Gentle random wander
-    wander() {
-        this.wanderAngle += rand(-0.3, 0.3);
-        return new THREE.Vector3(
-            Math.cos(this.wanderAngle) * BOID.wanderWeight,
-            0,
-            Math.sin(this.wanderAngle) * BOID.wanderWeight
-        );
+        if (this.type === 'fox') {
+            if (nearestDeer && nearestDeerDist < BOID.chaseDistance) {
+                this.seek(nearestDeer.model.position, _v1);
+                this.acceleration.x += _v1.x * BOID.chaseWeight;
+                this.acceleration.z += _v1.z * BOID.chaseWeight;
+            } else {
+                this.wanderAngle += rand(-0.3, 0.3);
+                this.acceleration.x += Math.cos(this.wanderAngle) * BOID.wanderWeight;
+                this.acceleration.z += Math.sin(this.wanderAngle) * BOID.wanderWeight;
+            }
+        } else {
+            // Apply alignment
+            if (alignCount > 0) {
+                avgVel.divideScalar(alignCount).normalize().multiplyScalar(this.maxSpeed).sub(this.velocity);
+                avgVel.clampLength(0, this.maxForce);
+                this.acceleration.x += avgVel.x * BOID.alignmentWeight;
+                this.acceleration.z += avgVel.z * BOID.alignmentWeight;
+            }
+            // Apply cohesion
+            if (cohereCount > 0) {
+                center.divideScalar(cohereCount);
+                this.seek(center, _v1);
+                this.acceleration.x += _v1.x * BOID.cohesionWeight;
+                this.acceleration.z += _v1.z * BOID.cohesionWeight;
+            }
+            // Wander
+            this.wanderAngle += rand(-0.3, 0.3);
+            this.acceleration.x += Math.cos(this.wanderAngle) * BOID.wanderWeight;
+            this.acceleration.z += Math.sin(this.wanderAngle) * BOID.wanderWeight;
+        }
     }
 
     update(delta, allBoids) {
         this.acceleration.set(0, 0, 0);
+        const pos = this.model.position;
 
-        if (this.type === 'fox') {
-            // Fox: chase nearest deer
-            let nearest = null;
-            let nearestDist = Infinity;
-            for (const b of allBoids) {
-                if (b.type !== 'deer') continue;
-                const d = this.model.position.distanceTo(b.model.position);
-                if (d < nearestDist) { nearestDist = d; nearest = b; }
-            }
-            if (nearest && nearestDist < BOID.chaseDistance) {
-                this.applyForce(this.seek(nearest.model.position).multiplyScalar(BOID.chaseWeight));
-            } else {
-                this.applyForce(this.wander());
-            }
-            this.applyForce(this.separate(allBoids).multiplyScalar(BOID.separationWeight));
-        } else {
-            // Deer: flock together, flee from fox
-            this.applyForce(this.separate(allBoids).multiplyScalar(BOID.separationWeight));
-            this.applyForce(this.align(allBoids).multiplyScalar(BOID.alignmentWeight));
-            this.applyForce(this.cohere(allBoids).multiplyScalar(BOID.cohesionWeight));
-            this.applyForce(this.wander());
+        // Single-pass flocking
+        this.computeFlocking(allBoids);
 
-            // Flee from foxes
-            for (const b of allBoids) {
-                if (b.type !== 'fox') continue;
-                const d = this.model.position.distanceTo(b.model.position);
-                if (d < BOID.fleeDistance) {
-                    const fleeForce = this.flee(b.model.position).multiplyScalar(BOID.fleeWeight * (1 - d / BOID.fleeDistance));
-                    this.applyForce(fleeForce);
-                }
+        // Boundaries
+        const limit = BOUNDS - 3;
+        if (pos.x > limit) this.acceleration.x -= BOID.boundaryWeight;
+        if (pos.x < -limit) this.acceleration.x += BOID.boundaryWeight;
+        if (pos.z > limit) this.acceleration.z -= BOID.boundaryWeight;
+        if (pos.z < -limit) this.acceleration.z += BOID.boundaryWeight;
+
+        // Obstacle avoidance
+        for (const obs of obstacles) {
+            const dx = pos.x - obs.position.x;
+            const dz = pos.z - obs.position.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            const minDist = obs.radius + BOID.obstacleAvoidDist;
+            if (d < minDist && d > 0.01) {
+                const strength = (1 - d / minDist) * BOID.obstacleRepulsion;
+                this.acceleration.x += (dx / d) * strength;
+                this.acceleration.z += (dz / d) * strength;
             }
         }
 
-        // Stay in bounds
-        this.applyForce(this.boundaries());
+        // Terrain: compute normal ONCE, reuse for slope force + slowdown + tilt
+        const normal = this._normal;
+        normal.copy(getTerrainNormal(pos.x, pos.z));
 
-        // Avoid obstacles (trees, rocks)
-        this.applyForce(this.avoidObstacles());
+        // Slope force: push downhill on steep terrain
+        const steepness = Math.sqrt(normal.x * normal.x + normal.z * normal.z);
+        if (steepness > BOID.slopeThreshold) {
+            this.acceleration.x += (-normal.x / steepness) * steepness * 2;
+            this.acceleration.z += (-normal.z / steepness) * steepness * 2;
+        }
 
-        // Slope physics
-        this.applyForce(this.slopeForce());
-
-        // Integrate
-        this.velocity.add(this.acceleration.multiplyScalar(delta));
-        this.velocity.y = 0; // XZ movement only
-        // Slow down on steep terrain
-        const terrainNormal = getTerrainNormal(this.model.position.x, this.model.position.z);
-        const slopeSlowdown = Math.max(0.3, terrainNormal.y); // flatter = faster
+        // Integrate velocity
+        this.velocity.x += this.acceleration.x * delta;
+        this.velocity.z += this.acceleration.z * delta;
+        this.velocity.y = 0;
+        const slopeSlowdown = Math.max(0.3, normal.y);
         this.velocity.clampLength(0, this.maxSpeed * slopeSlowdown);
 
-        this.model.position.add(this.velocity.clone().multiplyScalar(delta));
+        // Move
+        pos.x += this.velocity.x * delta;
+        pos.z += this.velocity.z * delta;
+        pos.y = getTerrainHeight(pos.x, pos.z);
 
-        // Snap to terrain height (ground following)
-        const groundY = getTerrainHeight(this.model.position.x, this.model.position.z);
-        this.model.position.y = groundY;
+        // Tilt to terrain slope
+        const vLen = this.velocity.length();
+        if (vLen > 0.1) {
+            const slopePitch = -Math.asin((normal.x * this.velocity.x + normal.z * this.velocity.z) / vLen) * 0.5;
+            this.model.rotation.x = slopePitch;
 
-        // Tilt model to match terrain slope
-        const normal = getTerrainNormal(this.model.position.x, this.model.position.z);
-        // Pitch forward/backward based on slope in movement direction
-        const moveDir = this.velocity.clone().normalize();
-        const slopePitch = -Math.asin(normal.x * moveDir.x + normal.z * moveDir.z) * 0.5;
-        this.model.rotation.x = slopePitch;
-
-        // Face direction of movement
-        if (this.velocity.length() > 0.1) {
+            // Smooth rotation towards movement direction
             const targetAngle = Math.atan2(this.velocity.x, this.velocity.z);
-            // Smooth rotation
-            let current = this.model.rotation.y;
-            let diff = targetAngle - current;
-            // Wrap angle
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            while (diff < -Math.PI) diff += Math.PI * 2;
+            let diff = targetAngle - this.model.rotation.y;
+            if (diff > Math.PI) diff -= Math.PI * 2;
+            if (diff < -Math.PI) diff += Math.PI * 2;
             this.model.rotation.y += diff * Math.min(delta * 5, 1);
         }
 
-        // Update skeleton animation
-        if (this.mixer) {
-            this.mixer.update(delta * 1.5); // slightly faster leg animation
-        }
+        if (this.mixer) this.mixer.update(delta * 1.5);
     }
 }
 
-function loadBoid(url, position, scale, animName, type) {
-    // Snap to terrain
-    position.y = getTerrainHeight(position.x, position.z);
-
-    return new Promise((resolve) => {
-        loader.load(url, (gltf) => {
-            const model = gltf.scene;
-            model.position.copy(position);
-            model.scale.setScalar(scale);
-
-            model.traverse((child) => {
-                if (child.isMesh && child.material) {
-                    const mat = child.material;
-                    child.material = new THREE.MeshBasicMaterial({
-                        color: mat.color ? mat.color.clone() : new THREE.Color(0xcccccc),
-                    });
-                }
-            });
-
-            scene.add(model);
-
-            const mixer = new THREE.AnimationMixer(model);
-            const clip = gltf.animations.find(a => a.name.includes(animName));
-            if (clip) {
-                const action = mixer.clipAction(clip);
-                action.timeScale = 1.5;
-                action.play();
-            }
-
-            const boid = new Boid(model, mixer, type);
-            boids.push(boid);
-            resolve(boid);
+function convertToBasicMaterials(model, fallbackColor = 0xcccccc) {
+    model.traverse((child) => {
+        if (!child.isMesh || !child.material) return;
+        const oldMat = child.material;
+        child.material = new THREE.MeshBasicMaterial({
+            color: oldMat.color ? oldMat.color.clone() : new THREE.Color(fallbackColor),
         });
+        oldMat.dispose();
+    });
+}
+
+function loadBoid(url, position, scale, animName, type) {
+    position.y = getTerrainHeight(position.x, position.z);
+    loader.load(url, (gltf) => {
+        const model = gltf.scene;
+        model.position.copy(position);
+        model.scale.setScalar(scale);
+        convertToBasicMaterials(model);
+        scene.add(model);
+
+        const mixer = new THREE.AnimationMixer(model);
+        const clip = gltf.animations.find(a => a.name.includes(animName));
+        if (clip) {
+            const action = mixer.clipAction(clip);
+            action.timeScale = 1.5;
+            action.play();
+        }
+        boids.push(new Boid(model, mixer, type));
     });
 }
 
 function loadNature(url, position, rotY, scale, collisionRadius = 0) {
-    // Place on terrain
     position.y = getTerrainHeight(position.x, position.z);
-
+    if (collisionRadius > 0) {
+        obstacles.push({ position: position.clone(), radius: collisionRadius });
+    }
     loader.load(url, (gltf) => {
         const model = gltf.scene;
         model.position.copy(position);
         model.rotation.y = rotY;
         model.scale.setScalar(scale);
-        model.traverse((child) => {
-            if (child.isMesh && child.material) {
-                child.material = new THREE.MeshBasicMaterial({
-                    color: child.material.color ? child.material.color.clone() : new THREE.Color(0x55aa33),
-                });
-            }
-        });
+        convertToBasicMaterials(model, 0x55aa33);
         scene.add(model);
     });
-
-    // Register as obstacle for collision
-    if (collisionRadius > 0) {
-        obstacles.push({ position: position.clone(), radius: collisionRadius });
-    }
 }
-
-// --- Scatter nature ---
-const rand = (min, max) => min + Math.random() * (max - min);
 const natBase = 'models/nature/';
 
 // Trees — register as collision obstacles
