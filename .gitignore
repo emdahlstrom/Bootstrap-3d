@@ -3,7 +3,7 @@ __pycache__/
 *.blend1
 *.blend2
 .DS_Store
-assets/
+/assets/
 node_modules/
 lib/
 test_*.html
