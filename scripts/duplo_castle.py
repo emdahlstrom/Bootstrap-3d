@@ -35,97 +35,56 @@ def clear_scene():
             bpy.data.materials.remove(block)
 
 
-# ─── Materials ───
+# ─── Materials (glTF-compatible, using Principled BSDF only) ───
 
 def mat_solid(name, color, roughness=0.4):
-    """Solid plastic Duplo material."""
+    """Solid plastic Duplo material — glTF compatible."""
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes["Principled BSDF"]
     bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Roughness"].default_value = roughness
     bsdf.inputs["Metallic"].default_value = 0.0
-    # Slight subsurface for that plasticky look
-    bsdf.inputs["Subsurface Weight"].default_value = 0.05
-    bsdf.inputs["Subsurface Radius"].default_value = (color[0], color[1], color[2])
+    # Slight specular boost for plastic sheen
+    bsdf.inputs["Specular IOR Level"].default_value = 0.6
+    # Subtle coat for that glossy Duplo look (exports to KHR_materials_clearcoat)
+    bsdf.inputs["Coat Weight"].default_value = 0.3
+    bsdf.inputs["Coat Roughness"].default_value = 0.15
     return mat
 
 
 def mat_transparent(name, color, alpha=0.3):
-    """Transparent/glassy wall material."""
+    """Transparent wall material — glTF compatible via Principled BSDF transmission."""
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
-    mat.blend_method = 'BLEND' if hasattr(mat, 'blend_method') else None
-    nodes = mat.node_tree.nodes
-    links = mat.node_tree.links
-
-    # Clear default
-    for n in nodes:
-        nodes.remove(n)
-
-    output = nodes.new('ShaderNodeOutputMaterial')
-    output.location = (400, 0)
-
-    glass = nodes.new('ShaderNodeBsdfGlass')
-    glass.location = (0, 100)
-    glass.inputs["Color"].default_value = color
-    glass.inputs["Roughness"].default_value = 0.05
-    glass.inputs["IOR"].default_value = 1.45
-
-    transparent = nodes.new('ShaderNodeBsdfTransparent')
-    transparent.location = (0, -100)
-    transparent.inputs["Color"].default_value = color
-
-    mix = nodes.new('ShaderNodeMixShader')
-    mix.location = (200, 0)
-    mix.inputs["Fac"].default_value = alpha
-
-    links.new(transparent.outputs["BSDF"], mix.inputs[1])
-    links.new(glass.outputs["BSDF"], mix.inputs[2])
-    links.new(mix.outputs["Shader"], output.inputs["Surface"])
-
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = color
+    bsdf.inputs["Roughness"].default_value = 0.05
+    bsdf.inputs["Metallic"].default_value = 0.0
+    # Transmission for glass-like transparency (exports to KHR_materials_transmission)
+    bsdf.inputs["Transmission Weight"].default_value = 1.0 - alpha
+    bsdf.inputs["IOR"].default_value = 1.45
+    # Alpha for Three.js fallback transparency
+    bsdf.inputs["Alpha"].default_value = alpha
     return mat
 
 
 def mat_sparkle(name, color):
-    """Sparkly gem/crystal material with emission."""
+    """Sparkly gem material — glTF compatible via emission + transmission."""
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
-    nodes = mat.node_tree.nodes
-    links = mat.node_tree.links
-
-    for n in nodes:
-        nodes.remove(n)
-
-    output = nodes.new('ShaderNodeOutputMaterial')
-    output.location = (600, 0)
-
-    # Glass base
-    glass = nodes.new('ShaderNodeBsdfGlass')
-    glass.location = (0, 150)
-    glass.inputs["Color"].default_value = color
-    glass.inputs["Roughness"].default_value = 0.0
-    glass.inputs["IOR"].default_value = 2.4  # Diamond-like
-
-    # Emission for sparkle
-    emission = nodes.new('ShaderNodeEmission')
-    emission.location = (0, -50)
-    emission.inputs["Color"].default_value = color
-    emission.inputs["Strength"].default_value = 3.0
-
-    # Fresnel to drive emission at glancing angles
-    fresnel = nodes.new('ShaderNodeFresnel')
-    fresnel.location = (-200, 0)
-    fresnel.inputs["IOR"].default_value = 2.4
-
-    mix = nodes.new('ShaderNodeMixShader')
-    mix.location = (300, 0)
-
-    links.new(fresnel.outputs["Fac"], mix.inputs["Fac"])
-    links.new(glass.outputs["BSDF"], mix.inputs[1])
-    links.new(emission.outputs["Emission"], mix.inputs[2])
-    links.new(mix.outputs["Shader"], output.inputs["Surface"])
-
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = color
+    bsdf.inputs["Roughness"].default_value = 0.05
+    bsdf.inputs["Metallic"].default_value = 0.3
+    # Emission for glow (exports to emissiveFactor in glTF)
+    bsdf.inputs["Emission Color"].default_value = color
+    bsdf.inputs["Emission Strength"].default_value = 5.0
+    # Some transmission for crystal look
+    bsdf.inputs["Transmission Weight"].default_value = 0.5
+    bsdf.inputs["IOR"].default_value = 2.4
+    # Specular for diamond-like sparkle
+    bsdf.inputs["Specular IOR Level"].default_value = 1.0
     return mat
 
 

@@ -261,47 +261,133 @@
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
-        // --- Scene setup ---
+        // --- Renderer ---
         const canvas = document.getElementById('canvas-3d');
-        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-        renderer.setPixelRatio(window.devicePixelRatio);
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(window.innerWidth, window.innerHeight - 180);
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.2;
+        renderer.toneMappingExposure = 1.4;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+        // --- Scene ---
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0a0f);
 
-        const camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 0.1, 100);
-        camera.position.set(4, 3, 5);
+        // Gradient sky background matching the Blender render
+        const bgCanvas = document.createElement('canvas');
+        bgCanvas.width = 2; bgCanvas.height = 512;
+        const ctx = bgCanvas.getContext('2d');
+        const grad = ctx.createLinearGradient(0, 0, 0, 512);
+        grad.addColorStop(0.0, '#6699ff');   // sky blue top
+        grad.addColorStop(0.5, '#b0c8f0');   // light blue
+        grad.addColorStop(1.0, '#d9e5f5');   // pale horizon
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 2, 512);
+        const bgTexture = new THREE.CanvasTexture(bgCanvas);
+        bgTexture.mapping = THREE.EquirectangularReflectionMapping;
+        scene.background = bgTexture;
+
+        // --- Procedural environment map for reflections ---
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        pmremGenerator.compileEquirectangularShader();
+
+        // Create a simple studio environment
+        const envScene = new THREE.Scene();
+        // Soft ambient dome
+        const envGeo = new THREE.SphereGeometry(10, 32, 16);
+        const envMat = new THREE.MeshBasicMaterial({ color: 0xc0d0e8, side: THREE.BackSide });
+        envScene.add(new THREE.Mesh(envGeo, envMat));
+        // Bright area (simulates key light reflection)
+        const panelGeo = new THREE.PlaneGeometry(6, 6);
+        const panelMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const panel = new THREE.Mesh(panelGeo, panelMat);
+        panel.position.set(5, 5, -5);
+        panel.lookAt(0, 0, 0);
+        envScene.add(panel);
+        // Warm ground bounce
+        const groundPanel = new THREE.Mesh(panelGeo, new THREE.MeshBasicMaterial({ color: 0xf5e8d0 }));
+        groundPanel.position.set(0, -4, 0);
+        groundPanel.rotation.x = -Math.PI / 2;
+        envScene.add(groundPanel);
+
+        const envMap = pmremGenerator.fromScene(envScene, 0.04).texture;
+        scene.environment = envMap;
+        envScene.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
+        pmremGenerator.dispose();
+
+        // --- Camera ---
+        const camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 0.1, 200);
+        camera.position.set(15, 10, 12);
 
         const controls = new OrbitControls(camera, canvas);
         controls.enableDamping = true;
         controls.dampingFactor = 0.08;
-        controls.target.set(0, 1.0, 0);
+        controls.target.set(0, 2, 0);
+        controls.minDistance = 3;
+        controls.maxDistance = 60;
         controls.update();
 
-        // --- Lighting ---
-        const ambient = new THREE.AmbientLight(0x404060, 0.5);
-        scene.add(ambient);
+        // --- Lighting (matched to Blender scene) ---
+        // Hemisphere light for sky/ground color bleed
+        const hemi = new THREE.HemisphereLight(0x80a0d0, 0xf0e8d0, 0.6);
+        scene.add(hemi);
 
-        const key = new THREE.DirectionalLight(0xfff0e0, 2.0);
-        key.position.set(3, 5, 3);
-        scene.add(key);
+        // Sun (key light with shadows)
+        const sun = new THREE.DirectionalLight(0xfff2e0, 3.0);
+        sun.position.set(8, 12, -6);
+        sun.castShadow = true;
+        sun.shadow.mapSize.width = 2048;
+        sun.shadow.mapSize.height = 2048;
+        sun.shadow.camera.near = 0.5;
+        sun.shadow.camera.far = 40;
+        sun.shadow.camera.left = -15;
+        sun.shadow.camera.right = 15;
+        sun.shadow.camera.top = 15;
+        sun.shadow.camera.bottom = -15;
+        sun.shadow.bias = -0.001;
+        scene.add(sun);
 
-        const fill = new THREE.DirectionalLight(0xd0d8ff, 0.8);
-        fill.position.set(-3, 3, -2);
+        // Soft fill from opposite side
+        const fill = new THREE.DirectionalLight(0xd0e0ff, 1.0);
+        fill.position.set(-6, 6, 4);
         scene.add(fill);
 
-        const rim = new THREE.PointLight(0xffffff, 1.0, 20);
-        rim.position.set(0, 4, -4);
+        // Warm bounce from front/below
+        const bounce = new THREE.DirectionalLight(0xffe8d0, 0.5);
+        bounce.position.set(0, 2, -10);
+        scene.add(bounce);
+
+        // Rim light
+        const rim = new THREE.DirectionalLight(0xffffff, 0.8);
+        rim.position.set(0, 6, 8);
         scene.add(rim);
 
         // --- Grid helper ---
-        const grid = new THREE.GridHelper(10, 20, 0x21262d, 0x161b22);
+        const grid = new THREE.GridHelper(20, 40, 0x90a0b0, 0xc0c8d0);
         grid.position.y = -0.62;
+        grid.material.opacity = 0.3;
+        grid.material.transparent = true;
         scene.add(grid);
+
+        // --- Post-processing (bloom for sparkles) ---
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            0.4,   // bloom strength
+            0.5,   // radius
+            0.7    // threshold - only bright emissive materials bloom
+        );
+        composer.addPass(bloomPass);
+        composer.addPass(new OutputPass());
 
         // --- Model loading ---
         let model = null;
@@ -309,12 +395,55 @@
 
         const modelDefaults = {
             'models/duplo_castle.glb': { cam: [15, 10, 12], target: [0, 2, 0] },
-            'models/hello_robot.glb': { cam: [4, 3, 5], target: [0, 1, 0] },
+            'models/hello_robot.glb': { cam: [5, 3, 5], target: [0, 1, 0] },
         };
 
+        function enhanceMaterials(object) {
+            object.traverse((child) => {
+                if (!child.isMesh) return;
+
+                child.castShadow = true;
+                child.receiveShadow = true;
+
+                const mat = child.material;
+                if (!mat) return;
+
+                // Set environment map intensity for nice reflections
+                mat.envMapIntensity = 0.8;
+
+                // Handle transparent materials (transmission or low alpha)
+                if (mat.transmission && mat.transmission > 0.1) {
+                    mat.transparent = true;
+                    mat.opacity = 1.0;
+                    mat.thickness = 0.5;
+                    mat.ior = mat.ior || 1.45;
+                    mat.roughness = Math.max(mat.roughness, 0.05);
+                    mat.side = THREE.DoubleSide;
+                    mat.depthWrite = false;
+                } else if (mat.opacity < 0.95) {
+                    mat.transparent = true;
+                    mat.side = THREE.DoubleSide;
+                    mat.depthWrite = false;
+                }
+
+                // Boost emissive materials (sparkle gems)
+                if (mat.emissive && mat.emissiveIntensity > 0.5) {
+                    mat.emissiveIntensity = Math.min(mat.emissiveIntensity * 1.5, 8.0);
+                }
+
+                mat.needsUpdate = true;
+            });
+        }
+
         function loadModel(path) {
-            // Remove old model
             if (model) {
+                model.traverse((child) => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                        else child.material.dispose();
+                    }
+                });
                 scene.remove(model);
                 model = null;
             }
@@ -324,16 +453,15 @@
                 path,
                 (gltf) => {
                     model = gltf.scene;
+                    enhanceMaterials(model);
                     scene.add(model);
                     document.getElementById('loading').classList.add('hidden');
 
-                    // Reset camera for this model
                     const def = modelDefaults[path] || { cam: [5, 4, 5], target: [0, 1, 0] };
                     camera.position.set(...def.cam);
                     controls.target.set(...def.target);
                     controls.update();
 
-                    // Apply wireframe state
                     if (wireframe) {
                         model.traverse((child) => {
                             if (child.isMesh) child.material.wireframe = true;
@@ -353,10 +481,8 @@
             );
         }
 
-        // Load default model
         loadModel(document.getElementById('model-select').value);
 
-        // Model switcher
         document.getElementById('model-select').addEventListener('change', (e) => {
             loadModel(e.target.value);
         });
@@ -407,16 +533,17 @@
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
             renderer.setSize(w, h);
+            composer.setSize(w, h);
         });
 
         // --- Animate ---
         function animate() {
             requestAnimationFrame(animate);
             if (autoSpin && model) {
-                model.rotation.y += 0.005;
+                model.rotation.y += 0.004;
             }
             controls.update();
-            renderer.render(scene, camera);
+            composer.render();
         }
         animate();
     </script>
