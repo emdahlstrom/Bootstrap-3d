@@ -107,15 +107,22 @@ function buildHunterMesh() {
     const gunMat = new THREE.MeshBasicMaterial({ color: 0x4a3520 });
     const mouthMat = new THREE.MeshBasicMaterial({ color: 0x331111 });
 
+    function addPart(geo, mat, x, y, z) {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        g.add(m);
+        return m;
+    }
+
     // Boots
-    g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, 0.35), boot), { position: new THREE.Vector3(-0.15, 0.1, 0.05) }));
-    g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, 0.35), boot), { position: new THREE.Vector3(0.15, 0.1, 0.05) }));
+    addPart(new THREE.BoxGeometry(0.25, 0.2, 0.35), boot, -0.15, 0.1, 0.05);
+    addPart(new THREE.BoxGeometry(0.25, 0.2, 0.35), boot, 0.15, 0.1, 0.05);
     // Legs
-    g.add(Object.assign(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.6, 8), leg), { position: new THREE.Vector3(-0.15, 0.5, 0) }));
-    g.add(Object.assign(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.6, 8), leg), { position: new THREE.Vector3(0.15, 0.5, 0) }));
+    addPart(new THREE.CylinderGeometry(0.08, 0.1, 0.6, 8), leg, -0.15, 0.5, 0);
+    addPart(new THREE.CylinderGeometry(0.08, 0.1, 0.6, 8), leg, 0.15, 0.5, 0);
     // Body
-    g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.3), vest), { position: new THREE.Vector3(0, 1.1, 0) }));
-    g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.15, 0.25), flannel), { position: new THREE.Vector3(0, 0.78, 0) }));
+    addPart(new THREE.BoxGeometry(0.5, 0.6, 0.3), vest, 0, 1.1, 0);
+    addPart(new THREE.BoxGeometry(0.52, 0.15, 0.25), flannel, 0, 0.78, 0);
     // Arms
     const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.5, 8), leg);
     armL.position.set(-0.35, 1.05, 0); armL.rotation.z = 0.3; armL.name = 'armL'; g.add(armL);
@@ -125,13 +132,13 @@ function buildHunterMesh() {
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), skin);
     head.position.set(0, 1.6, 0); head.name = 'head'; g.add(head);
     // Hat
-    g.add(Object.assign(new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 0.2, 12), hat), { position: new THREE.Vector3(0, 1.82, 0) }));
-    g.add(Object.assign(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 12), hat), { position: new THREE.Vector3(0, 1.72, 0) }));
+    addPart(new THREE.CylinderGeometry(0.15, 0.25, 0.2, 12), hat, 0, 1.82, 0);
+    addPart(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 12), hat, 0, 1.72, 0);
     // Eyes
-    g.add(Object.assign(new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), eye), { position: new THREE.Vector3(-0.08, 1.63, 0.18) }));
-    g.add(Object.assign(new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), eye), { position: new THREE.Vector3(0.08, 1.63, 0.18) }));
-    g.add(Object.assign(new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), pupil), { position: new THREE.Vector3(-0.08, 1.63, 0.22) }));
-    g.add(Object.assign(new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), pupil), { position: new THREE.Vector3(0.08, 1.63, 0.22) }));
+    addPart(new THREE.SphereGeometry(0.05, 8, 6), eye, -0.08, 1.63, 0.18);
+    addPart(new THREE.SphereGeometry(0.05, 8, 6), eye, 0.08, 1.63, 0.18);
+    addPart(new THREE.SphereGeometry(0.025, 6, 4), pupil, -0.08, 1.63, 0.22);
+    addPart(new THREE.SphereGeometry(0.025, 6, 4), pupil, 0.08, 1.63, 0.22);
     // Gun
     const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 1.0, 6), gunMat);
     gun.position.set(0.4, 1.1, 0.15); gun.rotation.z = -0.6; gun.rotation.x = 0.2; gun.name = 'gun'; g.add(gun);

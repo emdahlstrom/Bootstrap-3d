@@ -5,8 +5,13 @@ import { convertToBasicMaterials, rand, BOUNDS } from './utils.js';
 
 // Sync a Yuka entity's transform to a Three.js mesh
 function syncRenderComponent(entity, mesh) {
-    mesh.position.copy(entity.position);
-    mesh.quaternion.copy(entity.rotation);
+    mesh.position.x = entity.position.x;
+    mesh.position.y = entity.position.y;
+    mesh.position.z = entity.position.z;
+    mesh.quaternion.x = entity.rotation.x;
+    mesh.quaternion.y = entity.rotation.y;
+    mesh.quaternion.z = entity.rotation.z;
+    mesh.quaternion.w = entity.rotation.w;
 }
 
 export function createDeer(entityManager, scene, loader, gltf, spawnPos) {
