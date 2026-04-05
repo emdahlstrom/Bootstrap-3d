@@ -275,8 +275,8 @@
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(window.innerWidth, window.innerHeight - 180);
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 0.3;
+        renderer.toneMapping = THREE.LinearToneMapping;
+        renderer.toneMappingExposure = 1.0;
         renderer.outputColorSpace = THREE.SRGBColorSpace;
 
         // --- Scene ---
@@ -312,16 +312,16 @@
         controls.update();
 
         // --- Lighting (minimal to avoid washout) ---
-        const ambient = new THREE.AmbientLight(0x8899aa, 0.3);
+        const ambient = new THREE.AmbientLight(0xffffff, 0.7);
         scene.add(ambient);
 
-        // Sun key light
-        const sun = new THREE.DirectionalLight(0xffeedd, 0.5);
+        // Sun key light (low to avoid blowout)
+        const sun = new THREE.DirectionalLight(0xffeedd, 0.3);
         sun.position.set(8, 12, -6);
         scene.add(sun);
 
         // Fill light from opposite side
-        const fill = new THREE.DirectionalLight(0x8899bb, 0.15);
+        const fill = new THREE.DirectionalLight(0x8899bb, 0.1);
         fill.position.set(-6, 4, 4);
         scene.add(fill);
 
