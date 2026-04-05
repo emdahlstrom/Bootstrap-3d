@@ -675,13 +675,282 @@ function updateWeather(delta) {
     scene.background.needsUpdate = true;
 }
 
+// ─── Hunter (cartoonish figure built from primitives) ───
+const hunter = {
+    group: null,
+    active: false,
+    position: new THREE.Vector3(),
+    velocity: new THREE.Vector3(),
+    fleeDir: new THREE.Vector3(),
+    hp: 1.0,       // confidence — drops when animals attack
+    timer: 0,
+    wobble: 0,     // panic wobble animation
+};
+
+function createHunter() {
+    const g = new THREE.Group();
+
+    // Boots (dark brown)
+    const bootMat = new THREE.MeshBasicMaterial({ color: 0x3a2510 });
+    const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, 0.35), bootMat);
+    bootL.position.set(-0.15, 0.1, 0.05);
+    g.add(bootL);
+    const bootR = bootL.clone();
+    bootR.position.set(0.15, 0.1, 0.05);
+    g.add(bootR);
+
+    // Legs (khaki)
+    const legMat = new THREE.MeshBasicMaterial({ color: 0x8b7d5a });
+    const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.6, 8), legMat);
+    legL.position.set(-0.15, 0.5, 0);
+    g.add(legL);
+    const legR = legL.clone();
+    legR.position.set(0.15, 0.5, 0);
+    g.add(legR);
+
+    // Body (olive vest over red flannel)
+    const bodyMat = new THREE.MeshBasicMaterial({ color: 0x5a6b3a });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.3), bodyMat);
+    body.position.set(0, 1.1, 0);
+    g.add(body);
+    // Red flannel peeking out
+    const flannelMat = new THREE.MeshBasicMaterial({ color: 0xcc3333 });
+    const flannel = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.15, 0.25), flannelMat);
+    flannel.position.set(0, 0.78, 0);
+    g.add(flannel);
+
+    // Arms (khaki sleeves)
+    const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.5, 8), legMat);
+    armL.position.set(-0.35, 1.05, 0);
+    armL.rotation.z = 0.3;
+    armL.name = 'armL';
+    g.add(armL);
+    const armR = armL.clone();
+    armR.position.set(0.35, 1.05, 0);
+    armR.rotation.z = -0.3;
+    armR.name = 'armR';
+    g.add(armR);
+
+    // Head (peach skin)
+    const headMat = new THREE.MeshBasicMaterial({ color: 0xf0c090 });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), headMat);
+    head.position.set(0, 1.6, 0);
+    head.name = 'head';
+    g.add(head);
+
+    // Big silly hat (orange hunting cap)
+    const hatMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
+    const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 0.2, 12), hatMat);
+    hat.position.set(0, 1.82, 0);
+    g.add(hat);
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 12), hatMat);
+    brim.position.set(0, 1.72, 0);
+    g.add(brim);
+
+    // Eyes (wide, scared-looking white circles with dots)
+    const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), eyeWhiteMat);
+    eyeL.position.set(-0.08, 1.63, 0.18);
+    g.add(eyeL);
+    const eyeR = eyeL.clone();
+    eyeR.position.set(0.08, 1.63, 0.18);
+    g.add(eyeR);
+    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+    const pupilL = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), pupilMat);
+    pupilL.position.set(-0.08, 1.63, 0.22);
+    g.add(pupilL);
+    const pupilR = pupilL.clone();
+    pupilR.position.set(0.08, 1.63, 0.22);
+    g.add(pupilR);
+
+    // Cartoonish rifle (stick with a wider end)
+    const gunMat = new THREE.MeshBasicMaterial({ color: 0x4a3520 });
+    const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 1.0, 6), gunMat);
+    gun.position.set(0.4, 1.1, 0.15);
+    gun.rotation.z = -0.6;
+    gun.rotation.x = 0.2;
+    gun.name = 'gun';
+    g.add(gun);
+
+    // Mouth (small open 'O' when scared)
+    const mouthMat = new THREE.MeshBasicMaterial({ color: 0x331111 });
+    const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), mouthMat);
+    mouth.position.set(0, 1.53, 0.19);
+    mouth.name = 'mouth';
+    g.add(mouth);
+
+    g.visible = false;
+    scene.add(g);
+    hunter.group = g;
+}
+createHunter();
+
+function spawnHunter() {
+    // Enter from a random edge
+    const angle = rand(0, Math.PI * 2);
+    const edge = BOUNDS + 3;
+    hunter.position.set(Math.cos(angle) * edge, 0, Math.sin(angle) * edge);
+    hunter.position.y = getTerrainHeight(hunter.position.x, hunter.position.z);
+    hunter.group.position.copy(hunter.position);
+    // Face toward center
+    hunter.group.rotation.y = Math.atan2(-hunter.position.x, -hunter.position.z);
+    hunter.velocity.set(-Math.cos(angle) * 1.5, 0, -Math.sin(angle) * 1.5);
+    hunter.fleeDir.set(0, 0, 0);
+    hunter.hp = 1.0;
+    hunter.timer = 0;
+    hunter.wobble = 0;
+    hunter.active = true;
+    hunter.group.visible = true;
+
+    // Start walking in
+    const toast = document.getElementById('event-toast');
+    toast.textContent = '🔫 A hunter appears!';
+    toast.style.opacity = '1';
+    setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+}
+
+function updateHunter(delta) {
+    if (!hunter.active) return;
+    hunter.timer += delta;
+
+    const pos = hunter.position;
+    const g = hunter.group;
+
+    // Phase 1: Sneak toward center (first 3 seconds)
+    // Phase 2: Animals detect and charge, hunter panics
+    // Phase 3: Hunter flees off-map
+
+    // Check if any animal is close enough to "see" the hunter
+    let nearestAnimalDist = Infinity;
+    let attackerCount = 0;
+    const detectionRange = 10;
+    const attackRange = 4;
+
+    for (const boid of boids) {
+        const dx = pos.x - boid.model.position.x;
+        const dz = pos.z - boid.model.position.z;
+        const d = Math.sqrt(dx * dx + dz * dz);
+
+        if (d < detectionRange) {
+            // Animal spotted the hunter — charge at them!
+            const chargeForce = 6.0 * (1 - d / detectionRange);
+            boid.acceleration.x -= (dx / d) * chargeForce;
+            boid.acceleration.z -= (dz / d) * chargeForce;
+            boid.maxSpeed = Math.max(boid.maxSpeed, BOID.maxSpeed * 1.8);
+
+            if (d < attackRange) {
+                attackerCount++;
+                // Headbutt! Reduce hunter confidence
+                hunter.hp -= delta * 0.4;
+            }
+        }
+        if (d < nearestAnimalDist) nearestAnimalDist = d;
+    }
+
+    // Hunter behavior based on confidence
+    if (hunter.hp < 0.7 || attackerCount > 0) {
+        // PANIC — flee away from animals
+        hunter.wobble += delta * 15;
+        g.rotation.z = Math.sin(hunter.wobble) * 0.2;
+
+        // Mouth gets bigger with panic
+        const mouth = g.getObjectByName('mouth');
+        if (mouth) mouth.scale.setScalar(1 + (1 - hunter.hp) * 2);
+
+        // Arms flail
+        const armL = g.getObjectByName('armL');
+        const armR = g.getObjectByName('armR');
+        if (armL) armL.rotation.z = 0.3 + Math.sin(hunter.wobble * 1.3) * 0.8;
+        if (armR) armR.rotation.z = -0.3 + Math.cos(hunter.wobble * 1.5) * 0.8;
+
+        // Drop the gun when very scared
+        const gun = g.getObjectByName('gun');
+        if (gun && hunter.hp < 0.4) gun.visible = false;
+
+        // Flee direction: away from nearest animal cluster
+        hunter.fleeDir.set(0, 0, 0);
+        for (const boid of boids) {
+            const dx = pos.x - boid.model.position.x;
+            const dz = pos.z - boid.model.position.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            if (d < detectionRange && d > 0.1) {
+                hunter.fleeDir.x += dx / (d * d);
+                hunter.fleeDir.z += dz / (d * d);
+            }
+        }
+        if (hunter.fleeDir.length() > 0.01) {
+            hunter.fleeDir.normalize();
+        } else {
+            // Just run away from center
+            hunter.fleeDir.set(pos.x, 0, pos.z).normalize();
+        }
+
+        // Accelerating flee
+        const fleeSpeed = 3 + (1 - hunter.hp) * 5;
+        hunter.velocity.x += (hunter.fleeDir.x * fleeSpeed - hunter.velocity.x) * delta * 3;
+        hunter.velocity.z += (hunter.fleeDir.z * fleeSpeed - hunter.velocity.z) * delta * 3;
+
+        // Face flee direction
+        g.rotation.y = Math.atan2(hunter.fleeDir.x, hunter.fleeDir.z);
+
+        // Toast when first panicking
+        if (hunter.hp < 0.7 && hunter.hp > 0.65) {
+            const toast = document.getElementById('event-toast');
+            toast.textContent = '😱 The animals attack! Hunter panics!';
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+        }
+    } else {
+        // Sneaking in — slow walk toward center
+        const toCenter = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
+        if (toCenter > 2) {
+            hunter.velocity.x = (-pos.x / toCenter) * 1.2;
+            hunter.velocity.z = (-pos.z / toCenter) * 1.2;
+            g.rotation.y = Math.atan2(-pos.x, -pos.z);
+        } else {
+            hunter.velocity.set(0, 0, 0);
+        }
+        // Sneaking walk wobble
+        hunter.wobble += delta * 4;
+        g.rotation.z = Math.sin(hunter.wobble) * 0.03;
+    }
+
+    // Move
+    pos.x += hunter.velocity.x * delta;
+    pos.z += hunter.velocity.z * delta;
+    pos.y = getTerrainHeight(pos.x, pos.z);
+    g.position.copy(pos);
+
+    // Leg animation (simple bob)
+    g.position.y += Math.abs(Math.sin(hunter.wobble * 0.8)) * 0.05;
+
+    // Remove when fled far enough or confidence gone
+    const distFromCenter = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
+    if ((hunter.hp <= 0 && distFromCenter > BOUNDS) || distFromCenter > BOUNDS + 15) {
+        hunter.active = false;
+        hunter.group.visible = false;
+        // Reset gun visibility
+        const gun = g.getObjectByName('gun');
+        if (gun) gun.visible = true;
+        // Reset mouth
+        const mouth = g.getObjectByName('mouth');
+        if (mouth) mouth.scale.setScalar(1);
+        // Reset animal speeds
+        for (const b of boids) {
+            b.maxSpeed = b.type === 'fox' ? BOID.maxSpeed * 1.4 : BOID.maxSpeed;
+        }
+        const toast = document.getElementById('event-toast');
+        toast.textContent = '🏃 The hunter flees! The meadow is safe.';
+        toast.style.opacity = '1';
+        setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+    }
+}
+
 // ─── Random Events ───
-const events = [];
 let nextEventTime = 5;
 const EVENT_INTERVAL_MIN = 8;
 const EVENT_INTERVAL_MAX = 20;
 
-// Lightning flash for storms
 let lightningTimer = 0;
 const lightningLight = new THREE.PointLight(0xffffff, 0, 100);
 lightningLight.position.set(0, 30, 0);
@@ -702,6 +971,10 @@ function triggerEvent() {
         eventPool.push({ type: 'grazing_halt' });
         eventPool.push({ type: 'fox_frenzy' });
         eventPool.push({ type: 'scatter' });
+        if (!hunter.active) {
+            eventPool.push({ type: 'hunter' });
+            eventPool.push({ type: 'hunter' }); // double weight — more likely
+        }
     }
 
     const event = eventPool[Math.floor(rand(0, eventPool.length))];
@@ -762,6 +1035,11 @@ function triggerEvent() {
             break;
         }
 
+        case 'hunter': {
+            spawnHunter();
+            break;
+        }
+
         case 'scatter': {
             // All animals scatter from center
             for (const b of boids) {
@@ -811,6 +1089,9 @@ function animate() {
         triggerEvent();
         nextEventTime = rand(EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX);
     }
+
+    // Hunter
+    updateHunter(delta);
 
     // Wind effect on boids
     for (const boid of boids) {
