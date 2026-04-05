@@ -273,7 +273,7 @@
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(window.innerWidth, window.innerHeight - 180);
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.4;
+        renderer.toneMappingExposure = 1.0;
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -340,7 +340,7 @@
         scene.add(hemi);
 
         // Sun (key light with shadows)
-        const sun = new THREE.DirectionalLight(0xfff2e0, 3.0);
+        const sun = new THREE.DirectionalLight(0xfff2e0, 1.5);
         sun.position.set(8, 12, -6);
         sun.castShadow = true;
         sun.shadow.mapSize.width = 2048;
@@ -355,7 +355,7 @@
         scene.add(sun);
 
         // Soft fill from opposite side
-        const fill = new THREE.DirectionalLight(0xd0e0ff, 1.0);
+        const fill = new THREE.DirectionalLight(0xd0e0ff, 0.6);
         fill.position.set(-6, 6, 4);
         scene.add(fill);
 
@@ -382,9 +382,9 @@
 
         const bloomPass = new UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.4,   // bloom strength
-            0.5,   // radius
-            0.7    // threshold - only bright emissive materials bloom
+            0.15,  // bloom strength (subtle)
+            0.3,   // radius
+            1.5    // threshold - only very bright emissive materials bloom
         );
         composer.addPass(bloomPass);
         composer.addPass(new OutputPass());
@@ -409,7 +409,7 @@
                 if (!mat) return;
 
                 // Set environment map intensity for nice reflections
-                mat.envMapIntensity = 0.8;
+                mat.envMapIntensity = 0.5;
 
                 // Handle transparent materials (transmission or low alpha)
                 if (mat.transmission && mat.transmission > 0.1) {
@@ -426,9 +426,9 @@
                     mat.depthWrite = false;
                 }
 
-                // Boost emissive materials (sparkle gems)
-                if (mat.emissive && mat.emissiveIntensity > 0.5) {
-                    mat.emissiveIntensity = Math.min(mat.emissiveIntensity * 1.5, 8.0);
+                // Keep emissive materials (sparkle gems) at reasonable levels
+                if (mat.emissive && mat.emissiveIntensity > 1.0) {
+                    mat.emissiveIntensity = Math.min(mat.emissiveIntensity, 3.0);
                 }
 
                 mat.needsUpdate = true;
