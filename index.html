@@ -347,38 +347,23 @@
         function enhanceMaterials(object) {
             object.traverse((child) => {
                 if (!child.isMesh) return;
-
-                child.castShadow = true;
-                child.receiveShadow = true;
-
                 const mat = child.material;
                 if (!mat) return;
 
-                mat.envMapIntensity = 0;
-
-                // Fix metallic materials that wash out without env map.
-                // Quaternius models have metalness=0.4 which looks white
-                // without a proper environment to reflect. Force non-metallic
-                // unless it's clearly meant to be metal (sparkle gems etc).
-                if (mat.metalness > 0 && mat.metalness < 0.8) {
-                    mat.metalness = 0;
-                    mat.roughness = Math.max(mat.roughness, 0.5);
+                // Replace PBR with MeshBasicMaterial.
+                // GLB models have metalness + vertex colors that cause
+                // washed-out white rendering. Basic material uses the
+                // base color directly and looks great for low-poly assets.
+                const newMat = new THREE.MeshBasicMaterial({
+                    color: mat.color ? mat.color.clone() : new THREE.Color(0xcccccc),
+                    transparent: mat.opacity < 0.95,
+                    opacity: Math.max(mat.opacity || 1, 0.3),
+                    side: mat.opacity < 0.95 ? THREE.DoubleSide : mat.side,
+                });
+                if (mat.emissive && (mat.emissive.r > 0 || mat.emissive.g > 0 || mat.emissive.b > 0)) {
+                    newMat.color.lerp(mat.emissive, 0.5);
                 }
-
-                // Handle transparent materials
-                if (mat.opacity < 0.95) {
-                    mat.transparent = true;
-                    mat.side = THREE.DoubleSide;
-                    mat.depthWrite = false;
-                    mat.opacity = Math.max(mat.opacity, 0.3);
-                }
-
-                // Cap emissive
-                if (mat.emissive && mat.emissiveIntensity > 1) {
-                    mat.emissiveIntensity = 1.0;
-                }
-
-                mat.needsUpdate = true;
+                child.material = newMat;
             });
         }
 
