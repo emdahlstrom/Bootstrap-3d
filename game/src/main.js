@@ -75,12 +75,12 @@ const loader = new GLTFLoader();
 loadAllNature(loader, scene, obstacles);
 
 // Animals — load GLTFs then spawn
-const deerGltfP = new Promise(r => loader.load('/animals/Deer.glb', r));
-const stagGltfP = new Promise(r => loader.load('/animals/Stag.glb', r));
-const foxGltfP  = new Promise(r => loader.load('/animals/Fox.glb', r));
-const wolfGltfP = new Promise(r => loader.load('/animals/Wolf.glb', r));
-const huskyGltfP = new Promise(r => loader.load('/animals/Husky.glb', r));
-const donkeyGltfP = new Promise(r => loader.load('/animals/Donkey.glb', r));
+const deerGltfP = new Promise(r => loader.load('animals/Deer.glb', r));
+const stagGltfP = new Promise(r => loader.load('animals/Stag.glb', r));
+const foxGltfP  = new Promise(r => loader.load('animals/Fox.glb', r));
+const wolfGltfP = new Promise(r => loader.load('animals/Wolf.glb', r));
+const huskyGltfP = new Promise(r => loader.load('animals/Husky.glb', r));
+const donkeyGltfP = new Promise(r => loader.load('animals/Donkey.glb', r));
 
 Promise.all([deerGltfP, stagGltfP, foxGltfP, wolfGltfP, huskyGltfP, donkeyGltfP])
     .then(([deerGltf, stagGltf, foxGltf, wolfGltf, huskyGltf, donkeyGltf]) => {
