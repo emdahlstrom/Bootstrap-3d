@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bootstrap 3D - Animated Meadow</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; overflow: hidden; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        .info {
+            position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
+            color: #fff; font-family: sans-serif; font-size: 0.85rem;
+            background: rgba(0,0,0,0.5); padding: 0.5rem 1rem; border-radius: 6px;
+            pointer-events: none; transition: opacity 2s;
+        }
+        .controls {
+            position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 0.5rem;
+            background: rgba(0,0,0,0.6); padding: 0.5rem 1rem; border-radius: 8px;
+        }
+        .controls button, .controls a {
+            background: #333; color: #eee; border: 1px solid #555;
+            padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer;
+            font-size: 0.8rem; text-decoration: none;
+        }
+        .controls button:hover, .controls a:hover { background: #555; }
+        .controls button.active { background: #2563eb; border-color: #3b82f6; }
+    </style>
+</head>
+<body>
+
+<div class="info" id="info">Drag to orbit &middot; Scroll to zoom</div>
+<canvas id="canvas"></canvas>
+<div class="controls">
+    <a href="index.html">&larr; Back</a>
+    <button id="btn-spin" class="active">Auto Orbit</button>
+    <button id="btn-speed">Speed: 1x</button>
+</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// --- Setup ---
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.LinearToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+
+// Sky gradient
+const bgCanvas = document.createElement('canvas');
+bgCanvas.width = 2; bgCanvas.height = 512;
+const ctx = bgCanvas.getContext('2d');
+const grad = ctx.createLinearGradient(0, 0, 0, 512);
+grad.addColorStop(0.0, '#4488cc');
+grad.addColorStop(0.4, '#7ab0dd');
+grad.addColorStop(0.7, '#b8d8e8');
+grad.addColorStop(1.0, '#d8e8d0');
+ctx.fillStyle = grad;
+ctx.fillRect(0, 0, 2, 512);
+scene.background = new THREE.CanvasTexture(bgCanvas);
+
+// Camera
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500);
+camera.position.set(15, 8, 15);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.target.set(0, 1, 0);
+controls.maxDistance = 80;
+controls.update();
+
+// Lighting
+scene.add(new THREE.AmbientLight(0x8899aa, 0.6));
+const sun = new THREE.DirectionalLight(0xffeedd, 0.5);
+sun.position.set(8, 12, -6);
+scene.add(sun);
+
+// --- Ground ---
+const groundMat = new THREE.MeshBasicMaterial({ color: 0x4a8a2a });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.01;
+scene.add(ground);
+
+// --- Load helpers ---
+const loader = new GLTFLoader();
+const clock = new THREE.Clock();
+const mixers = [];
+
+// Track all animals for animation paths
+const animals = [];
+
+function loadAnimal(url, position, rotation, scale, animName, path) {
+    return new Promise((resolve) => {
+        loader.load(url, (gltf) => {
+            const model = gltf.scene;
+            model.position.copy(position);
+            model.rotation.y = rotation;
+            model.scale.setScalar(scale);
+
+            // Convert to BasicMaterial
+            model.traverse((child) => {
+                if (child.isMesh && child.material) {
+                    const mat = child.material;
+                    child.material = new THREE.MeshBasicMaterial({
+                        color: mat.color ? mat.color.clone() : new THREE.Color(0xcccccc),
+                    });
+                }
+            });
+
+            scene.add(model);
+
+            // Set up animation
+            const mixer = new THREE.AnimationMixer(model);
+            mixers.push(mixer);
+
+            const clip = gltf.animations.find(a => a.name.includes(animName));
+            if (clip) {
+                const action = mixer.clipAction(clip);
+                action.play();
+            }
+
+            animals.push({ model, path, pathIndex: 0, speed: 0.3 + Math.random() * 0.2 });
+            resolve(model);
+        });
+    });
+}
+
+function loadNature(url, position, rotY, scale) {
+    loader.load(url, (gltf) => {
+        const model = gltf.scene;
+        model.position.copy(position);
+        model.rotation.y = rotY;
+        model.scale.setScalar(scale);
+        model.traverse((child) => {
+            if (child.isMesh && child.material) {
+                child.material = new THREE.MeshBasicMaterial({
+                    color: child.material.color ? child.material.color.clone() : new THREE.Color(0x55aa33),
+                });
+            }
+        });
+        scene.add(model);
+    });
+}
+
+// --- Create walking paths (gentle curves) ---
+function createCirclePath(cx, cz, radius, segments = 64) {
+    const points = [];
+    for (let i = 0; i <= segments; i++) {
+        const angle = (i / segments) * Math.PI * 2;
+        points.push(new THREE.Vector3(
+            cx + Math.cos(angle) * radius,
+            0,
+            cz + Math.sin(angle) * radius
+        ));
+    }
+    return points;
+}
+
+function createWanderPath(cx, cz, radius, wobble = 2) {
+    const points = [];
+    const segments = 80;
+    for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        const angle = t * Math.PI * 2;
+        const r = radius + Math.sin(angle * 3) * wobble + Math.cos(angle * 5) * wobble * 0.5;
+        points.push(new THREE.Vector3(
+            cx + Math.cos(angle) * r,
+            0,
+            cz + Math.sin(angle) * r
+        ));
+    }
+    return points;
+}
+
+// --- Scatter nature ---
+const rand = (min, max) => min + Math.random() * (max - min);
+const natBase = 'models/nature/';
+
+// Trees around the edges
+for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2;
+    const r = 18 + rand(-3, 3);
+    loadNature(natBase + 'CommonTree_1.glb', new THREE.Vector3(Math.cos(angle)*r, 0, Math.sin(angle)*r), rand(0, 6.28), rand(1.5, 2.5));
+}
+for (let i = 0; i < 5; i++) {
+    const angle = (i / 5) * Math.PI * 2 + 0.3;
+    const r = 22 + rand(-2, 2);
+    loadNature(natBase + 'PineTree_1.glb', new THREE.Vector3(Math.cos(angle)*r, 0, Math.sin(angle)*r), rand(0, 6.28), rand(2, 3));
+}
+for (let i = 0; i < 3; i++) {
+    loadNature(natBase + 'BirchTree_1.glb', new THREE.Vector3(rand(-15, -8), 0, rand(-5, 5)), rand(0, 6.28), rand(1.5, 2.2));
+}
+
+// Bushes, grass, rocks, flowers
+for (let i = 0; i < 20; i++) {
+    loadNature(natBase + 'Grass.glb', new THREE.Vector3(rand(-12, 12), 0, rand(-12, 12)), rand(0, 6.28), rand(0.8, 1.5));
+}
+for (let i = 0; i < 10; i++) {
+    loadNature(natBase + 'Bush_1.glb', new THREE.Vector3(rand(-15, 15), 0, rand(-15, 15)), rand(0, 6.28), rand(1, 1.5));
+}
+for (let i = 0; i < 8; i++) {
+    loadNature(natBase + 'Flowers.glb', new THREE.Vector3(rand(-10, 10), 0, rand(-10, 10)), rand(0, 6.28), rand(0.6, 1.2));
+}
+for (let i = 0; i < 5; i++) {
+    loadNature(natBase + ['Rock_1.glb', 'Rock_Moss_1.glb'][i % 2], new THREE.Vector3(rand(-15, 15), 0, rand(-15, 15)), rand(0, 6.28), rand(1.5, 3));
+}
+
+// --- Load animated animals ---
+const animalBase = 'models/animals/';
+
+// Deer 1 — walking in a gentle circle
+loadAnimal(animalBase + 'Deer.glb',
+    new THREE.Vector3(5, 0, 0), 0, 1.0, 'Walk',
+    createCirclePath(3, 0, 5));
+
+// Deer 2 — wandering path
+loadAnimal(animalBase + 'Deer.glb',
+    new THREE.Vector3(-3, 0, 4), Math.PI * 0.5, 0.9, 'Walk',
+    createWanderPath(-2, 3, 4, 1.5));
+
+// Stag — larger wandering circle
+loadAnimal(animalBase + 'Stag.glb',
+    new THREE.Vector3(-6, 0, -5), 0, 1.2, 'Walk',
+    createCirclePath(-4, -4, 7));
+
+// Fox — faster, tighter path
+loadAnimal(animalBase + 'Fox.glb',
+    new THREE.Vector3(8, 0, -3), 0, 0.8, 'Gallop',
+    createWanderPath(6, -3, 6, 2));
+
+// --- Animation loop ---
+let autoOrbit = true;
+let speedMultiplier = 1;
+
+function animate() {
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta() * speedMultiplier;
+
+    // Update animation mixers
+    for (const mixer of mixers) {
+        mixer.update(delta);
+    }
+
+    // Move animals along their paths
+    for (const animal of animals) {
+        if (!animal.path || animal.path.length < 2) continue;
+
+        animal.pathIndex += animal.speed * delta;
+        if (animal.pathIndex >= animal.path.length - 1) {
+            animal.pathIndex = 0;
+        }
+
+        const idx = Math.floor(animal.pathIndex);
+        const frac = animal.pathIndex - idx;
+        const nextIdx = (idx + 1) % animal.path.length;
+
+        // Lerp position
+        const pos = new THREE.Vector3().lerpVectors(animal.path[idx], animal.path[nextIdx], frac);
+        animal.model.position.copy(pos);
+
+        // Face direction of movement
+        const dir = new THREE.Vector3().subVectors(animal.path[nextIdx], animal.path[idx]);
+        if (dir.length() > 0.001) {
+            animal.model.rotation.y = Math.atan2(dir.x, dir.z);
+        }
+    }
+
+    // Auto orbit camera
+    if (autoOrbit) {
+        const t = clock.elapsedTime * 0.1;
+        const radius = 20;
+        camera.position.x = Math.cos(t) * radius;
+        camera.position.z = Math.sin(t) * radius;
+        camera.position.y = 8 + Math.sin(t * 0.5) * 2;
+        controls.target.set(0, 1, 0);
+    }
+
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+animate();
+
+// --- UI ---
+document.getElementById('btn-spin').addEventListener('click', (e) => {
+    autoOrbit = !autoOrbit;
+    e.target.classList.toggle('active', autoOrbit);
+});
+
+const speeds = [1, 2, 0.5];
+let speedIdx = 0;
+document.getElementById('btn-speed').addEventListener('click', (e) => {
+    speedIdx = (speedIdx + 1) % speeds.length;
+    speedMultiplier = speeds[speedIdx];
+    e.target.textContent = `Speed: ${speedMultiplier}x`;
+});
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+setTimeout(() => { document.getElementById('info').style.opacity = '0'; }, 5000);
+</script>
+
+</body>
+</html>
