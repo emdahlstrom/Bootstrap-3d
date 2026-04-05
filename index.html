@@ -295,21 +295,21 @@
         const pmremGenerator = new THREE.PMREMGenerator(renderer);
         pmremGenerator.compileEquirectangularShader();
 
-        // Create a simple studio environment
+        // Create a subtle studio environment (darker to preserve material colors)
         const envScene = new THREE.Scene();
-        // Soft ambient dome
+        // Dim ambient dome
         const envGeo = new THREE.SphereGeometry(10, 32, 16);
-        const envMat = new THREE.MeshBasicMaterial({ color: 0xc0d0e8, side: THREE.BackSide });
+        const envMat = new THREE.MeshBasicMaterial({ color: 0x606878, side: THREE.BackSide });
         envScene.add(new THREE.Mesh(envGeo, envMat));
-        // Bright area (simulates key light reflection)
-        const panelGeo = new THREE.PlaneGeometry(6, 6);
-        const panelMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        // Soft highlight (not pure white)
+        const panelGeo = new THREE.PlaneGeometry(4, 4);
+        const panelMat = new THREE.MeshBasicMaterial({ color: 0xa0a8b0 });
         const panel = new THREE.Mesh(panelGeo, panelMat);
         panel.position.set(5, 5, -5);
         panel.lookAt(0, 0, 0);
         envScene.add(panel);
-        // Warm ground bounce
-        const groundPanel = new THREE.Mesh(panelGeo, new THREE.MeshBasicMaterial({ color: 0xf5e8d0 }));
+        // Warm ground bounce (subtle)
+        const groundPanel = new THREE.Mesh(panelGeo, new THREE.MeshBasicMaterial({ color: 0x908070 }));
         groundPanel.position.set(0, -4, 0);
         groundPanel.rotation.x = -Math.PI / 2;
         envScene.add(groundPanel);
@@ -333,11 +333,11 @@
 
         // --- Lighting (matched to Blender scene) ---
         // Hemisphere light for sky/ground color bleed
-        const hemi = new THREE.HemisphereLight(0x80a0d0, 0xf0e8d0, 0.6);
+        const hemi = new THREE.HemisphereLight(0x80a0d0, 0xf0e8d0, 0.3);
         scene.add(hemi);
 
         // Sun (key light with shadows)
-        const sun = new THREE.DirectionalLight(0xfff2e0, 1.5);
+        const sun = new THREE.DirectionalLight(0xfff2e0, 1.2);
         sun.position.set(8, 12, -6);
         sun.castShadow = true;
         sun.shadow.mapSize.width = 2048;
@@ -357,12 +357,12 @@
         scene.add(fill);
 
         // Warm bounce from front/below
-        const bounce = new THREE.DirectionalLight(0xffe8d0, 0.5);
+        const bounce = new THREE.DirectionalLight(0xffe8d0, 0.3);
         bounce.position.set(0, 2, -10);
         scene.add(bounce);
 
         // Rim light
-        const rim = new THREE.DirectionalLight(0xffffff, 0.8);
+        const rim = new THREE.DirectionalLight(0xffffff, 0.4);
         rim.position.set(0, 6, 8);
         scene.add(rim);
 
@@ -395,7 +395,7 @@
                 if (!mat) return;
 
                 // Set environment map intensity for nice reflections
-                mat.envMapIntensity = 0.5;
+                mat.envMapIntensity = 0.3;
 
                 // Handle transparent materials
                 if (mat.opacity < 0.95) {
