@@ -355,6 +355,15 @@
 
                 mat.envMapIntensity = 0;
 
+                // Fix metallic materials that wash out without env map.
+                // Quaternius models have metalness=0.4 which looks white
+                // without a proper environment to reflect. Force non-metallic
+                // unless it's clearly meant to be metal (sparkle gems etc).
+                if (mat.metalness > 0 && mat.metalness < 0.8) {
+                    mat.metalness = 0;
+                    mat.roughness = Math.max(mat.roughness, 0.5);
+                }
+
                 // Handle transparent materials
                 if (mat.opacity < 0.95) {
                     mat.transparent = true;
@@ -366,18 +375,6 @@
                 // Cap emissive
                 if (mat.emissive && mat.emissiveIntensity > 1) {
                     mat.emissiveIntensity = 1.0;
-                }
-
-                // Debug: log material info
-                if (mat.name) {
-                    console.log(`Material: ${mat.name}`, {
-                        color: mat.color?.getHexString(),
-                        metallic: mat.metalness,
-                        roughness: mat.roughness,
-                        vertexColors: mat.vertexColors,
-                        map: !!mat.map,
-                        opacity: mat.opacity
-                    });
                 }
 
                 mat.needsUpdate = true;
