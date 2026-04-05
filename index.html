@@ -269,8 +269,6 @@
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-        import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
-        // Post-processing removed — simpler is more compatible across devices
 
         // --- Renderer ---
         const canvas = document.getElementById('canvas-3d');
@@ -278,54 +276,29 @@
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(window.innerWidth, window.innerHeight - 180);
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.0;
+        renderer.toneMappingExposure = 0.8;
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
         // --- Scene ---
         const scene = new THREE.Scene();
 
-        // Gradient sky background matching the Blender render
+        // Gradient sky background
         const bgCanvas = document.createElement('canvas');
         bgCanvas.width = 2; bgCanvas.height = 512;
         const ctx = bgCanvas.getContext('2d');
         const grad = ctx.createLinearGradient(0, 0, 0, 512);
-        grad.addColorStop(0.0, '#6699ff');   // sky blue top
-        grad.addColorStop(0.5, '#b0c8f0');   // light blue
-        grad.addColorStop(1.0, '#d9e5f5');   // pale horizon
+        grad.addColorStop(0.0, '#4477cc');
+        grad.addColorStop(0.5, '#88aad8');
+        grad.addColorStop(1.0, '#b8c8d8');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, 2, 512);
         const bgTexture = new THREE.CanvasTexture(bgCanvas);
         bgTexture.mapping = THREE.EquirectangularReflectionMapping;
         scene.background = bgTexture;
 
-        // --- Procedural environment map for reflections ---
-        const pmremGenerator = new THREE.PMREMGenerator(renderer);
-        pmremGenerator.compileEquirectangularShader();
-
-        // Create a subtle studio environment (darker to preserve material colors)
-        const envScene = new THREE.Scene();
-        // Dim ambient dome
-        const envGeo = new THREE.SphereGeometry(10, 32, 16);
-        const envMat = new THREE.MeshBasicMaterial({ color: 0x606878, side: THREE.BackSide });
-        envScene.add(new THREE.Mesh(envGeo, envMat));
-        // Soft highlight (not pure white)
-        const panelGeo = new THREE.PlaneGeometry(4, 4);
-        const panelMat = new THREE.MeshBasicMaterial({ color: 0xa0a8b0 });
-        const panel = new THREE.Mesh(panelGeo, panelMat);
-        panel.position.set(5, 5, -5);
-        panel.lookAt(0, 0, 0);
-        envScene.add(panel);
-        // Warm ground bounce (subtle)
-        const groundPanel = new THREE.Mesh(panelGeo, new THREE.MeshBasicMaterial({ color: 0x908070 }));
-        groundPanel.position.set(0, -4, 0);
-        groundPanel.rotation.x = -Math.PI / 2;
-        envScene.add(groundPanel);
-
-        const envMap = pmremGenerator.fromScene(envScene, 0.04).texture;
-        scene.environment = envMap;
-        envScene.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
-        pmremGenerator.dispose();
+        // No environment map — direct lighting only to preserve material colors
+        scene.environment = null;
 
         // --- Camera ---
         const camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 0.1, 200);
@@ -339,13 +312,13 @@
         controls.maxDistance = 60;
         controls.update();
 
-        // --- Lighting (matched to Blender scene) ---
-        // Hemisphere light for sky/ground color bleed
-        const hemi = new THREE.HemisphereLight(0x80a0d0, 0xf0e8d0, 0.3);
-        scene.add(hemi);
+        // --- Lighting (simple and controlled) ---
+        // Ambient for base visibility
+        const ambient = new THREE.AmbientLight(0x8090a0, 0.6);
+        scene.add(ambient);
 
         // Sun (key light with shadows)
-        const sun = new THREE.DirectionalLight(0xfff2e0, 1.2);
+        const sun = new THREE.DirectionalLight(0xfff2e0, 1.5);
         sun.position.set(8, 12, -6);
         sun.castShadow = true;
         sun.shadow.mapSize.width = 2048;
@@ -359,20 +332,10 @@
         sun.shadow.bias = -0.001;
         scene.add(sun);
 
-        // Soft fill from opposite side
-        const fill = new THREE.DirectionalLight(0xd0e0ff, 0.6);
-        fill.position.set(-6, 6, 4);
+        // Fill light from opposite side
+        const fill = new THREE.DirectionalLight(0xc0d0e8, 0.4);
+        fill.position.set(-6, 4, 4);
         scene.add(fill);
-
-        // Warm bounce from front/below
-        const bounce = new THREE.DirectionalLight(0xffe8d0, 0.3);
-        bounce.position.set(0, 2, -10);
-        scene.add(bounce);
-
-        // Rim light
-        const rim = new THREE.DirectionalLight(0xffffff, 0.4);
-        rim.position.set(0, 6, 8);
-        scene.add(rim);
 
         // --- Grid helper ---
         const grid = new THREE.GridHelper(20, 40, 0x90a0b0, 0xc0c8d0);
@@ -403,21 +366,20 @@
                 const mat = child.material;
                 if (!mat) return;
 
-                // Set environment map intensity for nice reflections
-                mat.envMapIntensity = 0.3;
+                // No env map reflections
+                mat.envMapIntensity = 0;
 
                 // Handle transparent materials
                 if (mat.opacity < 0.95) {
                     mat.transparent = true;
                     mat.side = THREE.DoubleSide;
                     mat.depthWrite = false;
-                    // Ensure we can actually see the color
-                    mat.opacity = Math.max(mat.opacity, 0.25);
+                    mat.opacity = Math.max(mat.opacity, 0.3);
                 }
 
-                // Cap emissive so gems glow but don't blow out
-                if (mat.emissive && mat.emissiveIntensity > 0) {
-                    mat.emissiveIntensity = Math.min(mat.emissiveIntensity, 1.5);
+                // Cap emissive
+                if (mat.emissive && mat.emissiveIntensity > 1) {
+                    mat.emissiveIntensity = 1.0;
                 }
 
                 mat.needsUpdate = true;
