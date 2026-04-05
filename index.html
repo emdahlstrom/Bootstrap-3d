@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bootstrap 3D - Viewer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        header {
+            text-align: center;
+            padding: 2rem 1rem;
+            background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+            border-bottom: 1px solid #21262d;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 300;
+            letter-spacing: 0.1em;
+            color: #58a6ff;
+        }
+
+        header p {
+            margin-top: 0.5rem;
+            color: #8b949e;
+            font-size: 1.1rem;
+        }
+
+        .tabs {
+            display: flex;
+            justify-content: center;
+            gap: 0;
+            background: #161b22;
+            border-bottom: 1px solid #21262d;
+        }
+
+        .tab {
+            padding: 1rem 2rem;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            color: #8b949e;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+        }
+
+        .tab:hover { color: #e0e0e0; }
+        .tab.active {
+            color: #58a6ff;
+            border-bottom-color: #58a6ff;
+        }
+
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        /* 3D Viewer */
+        #viewer-panel {
+            position: relative;
+            height: calc(100vh - 180px);
+            min-height: 500px;
+        }
+
+        #canvas-3d {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .viewer-controls {
+            position: absolute;
+            bottom: 1.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 0.5rem;
+            background: rgba(13, 17, 23, 0.85);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            border: 1px solid #21262d;
+            backdrop-filter: blur(10px);
+        }
+
+        .viewer-controls button {
+            background: #21262d;
+            color: #e0e0e0;
+            border: 1px solid #30363d;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .viewer-controls button:hover {
+            background: #30363d;
+            border-color: #58a6ff;
+        }
+
+        .viewer-controls button.active {
+            background: #1f6feb;
+            border-color: #58a6ff;
+        }
+
+        .viewer-hint {
+            position: absolute;
+            top: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(13, 17, 23, 0.8);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            color: #8b949e;
+            font-size: 0.85rem;
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+
+        /* Gallery */
+        #gallery-panel { padding: 2rem; }
+
+        .gallery-grid {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .gallery-card {
+            background: #161b22;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #21262d;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .gallery-card:hover {
+            transform: translateY(-4px);
+            border-color: #58a6ff;
+        }
+
+        .gallery-card img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .gallery-card .caption {
+            padding: 1rem;
+        }
+
+        .gallery-card .caption h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.3rem;
+            color: #e0e0e0;
+        }
+
+        .gallery-card .caption p {
+            color: #8b949e;
+            font-size: 0.9rem;
+        }
+
+        /* Loading */
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0a0a0f;
+            z-index: 10;
+            transition: opacity 0.5s;
+        }
+
+        .loading-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #21262d;
+            border-top-color: #58a6ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>BOOTSTRAP 3D</h1>
+        <p>Programmatic 3D Graphics Pipeline</p>
+    </header>
+
+    <div class="tabs">
+        <div class="tab active" data-panel="viewer-panel">3D Viewer</div>
+        <div class="tab" data-panel="gallery-panel">Render Gallery</div>
+    </div>
+
+    <!-- Interactive 3D Viewer -->
+    <div id="viewer-panel" class="panel active">
+        <div class="loading-overlay" id="loading">
+            <div class="spinner"></div>
+        </div>
+        <div class="viewer-hint" id="hint">Click and drag to orbit &middot; Scroll to zoom &middot; Right-click to pan</div>
+        <canvas id="canvas-3d"></canvas>
+        <div class="viewer-controls">
+            <button id="btn-reset">Reset View</button>
+            <button id="btn-spin" class="active">Auto Spin</button>
+            <button id="btn-wireframe">Wireframe</button>
+        </div>
+    </div>
+
+    <!-- Render Gallery -->
+    <div id="gallery-panel" class="panel">
+        <div class="gallery-grid">
+            <div class="gallery-card">
+                <img src="renders/hello_robot.png" alt="Hello Robot">
+                <div class="caption">
+                    <h3>Hello Robot</h3>
+                    <p>Proof-of-concept robot character &mdash; primitives, PBR materials, Cycles render (128 samples)</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Three.js from CDN -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // --- Scene setup ---
+        const canvas = document.getElementById('canvas-3d');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight - 180);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0a0f);
+
+        const camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 0.1, 100);
+        camera.position.set(4, 3, 5);
+
+        const controls = new OrbitControls(camera, canvas);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.target.set(0, 1.0, 0);
+        controls.update();
+
+        // --- Lighting ---
+        const ambient = new THREE.AmbientLight(0x404060, 0.5);
+        scene.add(ambient);
+
+        const key = new THREE.DirectionalLight(0xfff0e0, 2.0);
+        key.position.set(3, 5, 3);
+        scene.add(key);
+
+        const fill = new THREE.DirectionalLight(0xd0d8ff, 0.8);
+        fill.position.set(-3, 3, -2);
+        scene.add(fill);
+
+        const rim = new THREE.PointLight(0xffffff, 1.0, 20);
+        rim.position.set(0, 4, -4);
+        scene.add(rim);
+
+        // --- Grid helper ---
+        const grid = new THREE.GridHelper(10, 20, 0x21262d, 0x161b22);
+        grid.position.y = -0.62;
+        scene.add(grid);
+
+        // --- Load model ---
+        let model = null;
+        const loader = new GLTFLoader();
+        loader.load(
+            'models/hello_robot.glb',
+            (gltf) => {
+                model = gltf.scene;
+                scene.add(model);
+                document.getElementById('loading').classList.add('hidden');
+
+                // Fade out hint after 4 seconds
+                setTimeout(() => {
+                    document.getElementById('hint').style.opacity = '0';
+                }, 4000);
+            },
+            (progress) => {
+                // Loading progress
+            },
+            (error) => {
+                console.error('Error loading model:', error);
+                document.getElementById('loading').innerHTML =
+                    '<p style="color:#f85149">Failed to load model. Run from a local server:<br><code>python3 -m http.server 8000</code></p>';
+            }
+        );
+
+        // --- Controls ---
+        let autoSpin = true;
+        let wireframe = false;
+
+        document.getElementById('btn-spin').addEventListener('click', (e) => {
+            autoSpin = !autoSpin;
+            e.target.classList.toggle('active', autoSpin);
+        });
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            camera.position.set(4, 3, 5);
+            controls.target.set(0, 1.0, 0);
+            controls.update();
+        });
+
+        document.getElementById('btn-wireframe').addEventListener('click', (e) => {
+            wireframe = !wireframe;
+            e.target.classList.toggle('active', wireframe);
+            if (model) {
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        child.material.wireframe = wireframe;
+                    }
+                });
+            }
+        });
+
+        // --- Tabs ---
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.panel).classList.add('active');
+            });
+        });
+
+        // --- Resize ---
+        window.addEventListener('resize', () => {
+            const w = window.innerWidth;
+            const h = window.innerHeight - 180;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        });
+
+        // --- Animate ---
+        function animate() {
+            requestAnimationFrame(animate);
+            if (autoSpin && model) {
+                model.rotation.y += 0.005;
+            }
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+
+</body>
+</html>
