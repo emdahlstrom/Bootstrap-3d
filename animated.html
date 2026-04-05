@@ -31,6 +31,10 @@
 <body>
 
 <div class="info" id="info">Drag to orbit &middot; Scroll to zoom</div>
+<div id="event-toast" style="position:fixed;top:3rem;left:50%;transform:translateX(-50%);
+    color:#fff;font-family:sans-serif;font-size:0.9rem;font-weight:600;
+    background:rgba(0,0,0,0.7);padding:0.6rem 1.2rem;border-radius:8px;
+    pointer-events:none;opacity:0;transition:opacity 0.5s;z-index:10"></div>
 <canvas id="canvas"></canvas>
 <div class="controls">
     <a href="index.html">&larr; Back</a>
@@ -122,15 +126,20 @@ function fbm(x, z, octaves = 4) {
 // Terrain parameters
 const TERRAIN_SIZE = 60;
 const TERRAIN_SEG = 128;
-const TERRAIN_HEIGHT = 4.0; // max hill height
-const TERRAIN_SCALE = 0.08; // noise frequency
+const TERRAIN_HEIGHT = 10.0;
+const TERRAIN_SCALE = 0.06;
 
 function getTerrainHeight(x, z) {
+    // Base rolling hills
     const h = fbm(x * TERRAIN_SCALE + 50, z * TERRAIN_SCALE + 50, 5);
-    // Flatten center for the meadow, hills at edges
-    const distFromCenter = Math.sqrt(x * x + z * z);
-    const edgeFactor = Math.min(distFromCenter / 15, 1);
-    return h * TERRAIN_HEIGHT * edgeFactor * edgeFactor;
+    // Ridge along one side
+    const ridge = Math.exp(-((x + 12) * (x + 12)) / 30) * 3.0;
+    // Valley through center
+    const valley = -Math.exp(-(z * z) / 60) * 1.5;
+    // Flatten center meadow, raise edges
+    const dist = Math.sqrt(x * x + z * z);
+    const edgeFactor = Math.min(dist / 12, 1);
+    return (h * TERRAIN_HEIGHT * edgeFactor + ridge + valley) * edgeFactor;
 }
 
 function getTerrainNormal(x, z) {
@@ -158,7 +167,7 @@ for (let i = 0; i < positions.count; i++) {
 
     // Vertex colors based on height + slope
     const slope = 1 - getTerrainNormal(x, z).y; // 0 = flat, 1 = vertical
-    const t = y / TERRAIN_HEIGHT;
+    const t = Math.min(y / TERRAIN_HEIGHT, 1);
 
     // Green meadow -> brown dirt -> grey rock
     let r, g, b;
@@ -508,28 +517,322 @@ loadBoid(animalBase + 'Fox.glb',
     new THREE.Vector3(12, 0, 0),
     0.8, 'Gallop', 'fox');
 
-// --- Animation loop ---
+// ─── Weather System ───
+const weather = {
+    state: 'clear',       // clear, cloudy, rain, storm, fog, golden_hour
+    transition: 0,        // 0..1 blend factor
+    targetAmbient: new THREE.Color(0x8899aa),
+    targetSun: new THREE.Color(0xffeedd),
+    targetSunIntensity: 0.5,
+    targetAmbientIntensity: 0.6,
+    targetFog: null,
+    windX: 0,
+    windZ: 0,
+};
+
+const ambientLight = scene.children.find(c => c.isAmbientLight);
+
+// Rain particles
+const rainGeo = new THREE.BufferGeometry();
+const rainCount = 3000;
+const rainPositions = new Float32Array(rainCount * 3);
+for (let i = 0; i < rainCount; i++) {
+    rainPositions[i * 3] = rand(-30, 30);
+    rainPositions[i * 3 + 1] = rand(0, 25);
+    rainPositions[i * 3 + 2] = rand(-30, 30);
+}
+rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+const rainMat = new THREE.PointsMaterial({ color: 0xaaccee, size: 0.08, transparent: true, opacity: 0 });
+const rain = new THREE.Points(rainGeo, rainMat);
+scene.add(rain);
+
+function setWeather(state) {
+    weather.state = state;
+    weather.transition = 0;
+    const toast = document.getElementById('event-toast');
+
+    switch (state) {
+        case 'clear':
+            weather.targetAmbient.set(0x8899aa);
+            weather.targetSun.set(0xffeedd);
+            weather.targetSunIntensity = 0.5;
+            weather.targetAmbientIntensity = 0.6;
+            weather.targetFog = null;
+            weather.windX = 0; weather.windZ = 0;
+            toast.textContent = '☀️ Clear skies';
+            break;
+        case 'cloudy':
+            weather.targetAmbient.set(0x778899);
+            weather.targetSun.set(0xcccccc);
+            weather.targetSunIntensity = 0.2;
+            weather.targetAmbientIntensity = 0.7;
+            weather.targetFog = null;
+            weather.windX = rand(-0.3, 0.3); weather.windZ = rand(-0.3, 0.3);
+            toast.textContent = '☁️ Clouds rolling in';
+            break;
+        case 'rain':
+            weather.targetAmbient.set(0x556677);
+            weather.targetSun.set(0x889999);
+            weather.targetSunIntensity = 0.1;
+            weather.targetAmbientIntensity = 0.5;
+            weather.targetFog = new THREE.Color(0x667788);
+            weather.windX = rand(-0.8, 0.8); weather.windZ = rand(-0.8, 0.8);
+            toast.textContent = '🌧️ Rain begins to fall';
+            break;
+        case 'storm':
+            weather.targetAmbient.set(0x334455);
+            weather.targetSun.set(0x556666);
+            weather.targetSunIntensity = 0.05;
+            weather.targetAmbientIntensity = 0.4;
+            weather.targetFog = new THREE.Color(0x445566);
+            weather.windX = rand(-2, 2); weather.windZ = rand(-2, 2);
+            toast.textContent = '⛈️ A storm approaches!';
+            break;
+        case 'fog':
+            weather.targetAmbient.set(0x99aabb);
+            weather.targetSun.set(0xdddddd);
+            weather.targetSunIntensity = 0.15;
+            weather.targetAmbientIntensity = 0.8;
+            weather.targetFog = new THREE.Color(0xbbcccc);
+            weather.windX = 0; weather.windZ = 0;
+            toast.textContent = '🌫️ Fog descends on the meadow';
+            break;
+        case 'golden_hour':
+            weather.targetAmbient.set(0xcc8855);
+            weather.targetSun.set(0xffaa44);
+            weather.targetSunIntensity = 0.7;
+            weather.targetAmbientIntensity = 0.5;
+            weather.targetFog = null;
+            weather.windX = 0; weather.windZ = 0;
+            toast.textContent = '🌅 Golden hour';
+            break;
+    }
+    toast.style.opacity = '1';
+    setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+}
+
+function updateWeather(delta) {
+    weather.transition = Math.min(weather.transition + delta * 0.3, 1);
+    const t = weather.transition;
+
+    ambientLight.color.lerp(weather.targetAmbient, t * 0.05);
+    ambientLight.intensity += (weather.targetAmbientIntensity - ambientLight.intensity) * t * 0.05;
+    sun.color.lerp(weather.targetSun, t * 0.05);
+    sun.intensity += (weather.targetSunIntensity - sun.intensity) * t * 0.05;
+
+    // Fog
+    if (weather.targetFog) {
+        if (!scene.fog) scene.fog = new THREE.Fog(weather.targetFog, 15, 50);
+        scene.fog.color.lerp(weather.targetFog, t * 0.05);
+        scene.fog.near += (15 - scene.fog.near) * 0.02;
+        const targetFar = weather.state === 'fog' ? 30 : weather.state === 'storm' ? 35 : 50;
+        scene.fog.far += (targetFar - scene.fog.far) * 0.02;
+    } else if (scene.fog) {
+        scene.fog.far += (200 - scene.fog.far) * 0.02;
+        if (scene.fog.far > 180) scene.fog = null;
+    }
+
+    // Rain particles
+    const isRaining = weather.state === 'rain' || weather.state === 'storm';
+    const targetOpacity = isRaining ? (weather.state === 'storm' ? 0.7 : 0.4) : 0;
+    rainMat.opacity += (targetOpacity - rainMat.opacity) * 0.03;
+
+    if (rainMat.opacity > 0.01) {
+        const positions = rainGeo.attributes.position;
+        const speed = weather.state === 'storm' ? 40 : 20;
+        for (let i = 0; i < rainCount; i++) {
+            positions.array[i * 3 + 1] -= delta * speed;
+            positions.array[i * 3] += weather.windX * delta * 3;
+            positions.array[i * 3 + 2] += weather.windZ * delta * 3;
+            if (positions.array[i * 3 + 1] < 0) {
+                positions.array[i * 3] = rand(-30, 30);
+                positions.array[i * 3 + 1] = rand(15, 25);
+                positions.array[i * 3 + 2] = rand(-30, 30);
+            }
+        }
+        positions.needsUpdate = true;
+    }
+
+    // Update sky gradient based on weather
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, 512);
+    if (weather.state === 'storm') {
+        skyGrad.addColorStop(0, '#223344'); skyGrad.addColorStop(1, '#334455');
+    } else if (weather.state === 'rain') {
+        skyGrad.addColorStop(0, '#446688'); skyGrad.addColorStop(1, '#667788');
+    } else if (weather.state === 'fog') {
+        skyGrad.addColorStop(0, '#8899aa'); skyGrad.addColorStop(1, '#aabbbb');
+    } else if (weather.state === 'golden_hour') {
+        skyGrad.addColorStop(0, '#cc6633'); skyGrad.addColorStop(0.5, '#dd9955');
+        skyGrad.addColorStop(1, '#eebb77');
+    } else if (weather.state === 'cloudy') {
+        skyGrad.addColorStop(0, '#5577aa'); skyGrad.addColorStop(1, '#99aabb');
+    } else {
+        skyGrad.addColorStop(0, '#4488cc'); skyGrad.addColorStop(0.4, '#7ab0dd');
+        skyGrad.addColorStop(0.7, '#b8d8e8'); skyGrad.addColorStop(1, '#d8e8d0');
+    }
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, 2, 512);
+    scene.background.needsUpdate = true;
+}
+
+// ─── Random Events ───
+const events = [];
+let nextEventTime = 5;
+const EVENT_INTERVAL_MIN = 8;
+const EVENT_INTERVAL_MAX = 20;
+
+// Lightning flash for storms
+let lightningTimer = 0;
+const lightningLight = new THREE.PointLight(0xffffff, 0, 100);
+lightningLight.position.set(0, 30, 0);
+scene.add(lightningLight);
+
+function triggerEvent() {
+    const toast = document.getElementById('event-toast');
+    const eventPool = [];
+
+    // Weather changes
+    const weatherOptions = ['clear', 'cloudy', 'rain', 'storm', 'fog', 'golden_hour']
+        .filter(w => w !== weather.state);
+    eventPool.push({ type: 'weather', weather: weatherOptions[Math.floor(rand(0, weatherOptions.length))] });
+
+    // Animal behavior events
+    if (boids.length > 0) {
+        eventPool.push({ type: 'stampede' });
+        eventPool.push({ type: 'grazing_halt' });
+        eventPool.push({ type: 'fox_frenzy' });
+        eventPool.push({ type: 'scatter' });
+    }
+
+    const event = eventPool[Math.floor(rand(0, eventPool.length))];
+
+    switch (event.type) {
+        case 'weather':
+            setWeather(event.weather);
+            break;
+
+        case 'stampede': {
+            // All deer suddenly run in one direction
+            const angle = rand(0, Math.PI * 2);
+            const dir = { x: Math.cos(angle), z: Math.sin(angle) };
+            for (const b of boids) {
+                if (b.type === 'deer') {
+                    b.velocity.x = dir.x * b.maxSpeed * 1.5;
+                    b.velocity.z = dir.z * b.maxSpeed * 1.5;
+                }
+            }
+            toast.textContent = '🦌 The herd stampedes!';
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+            break;
+        }
+
+        case 'grazing_halt': {
+            // Deer stop to graze
+            for (const b of boids) {
+                if (b.type === 'deer') {
+                    b.velocity.multiplyScalar(0.05);
+                    b._grazeTimer = rand(3, 6);
+                    // Switch to eating animation if available
+                    if (b.mixer) {
+                        const eating = b.mixer._root?.animations?.find(a => a.name.includes('Eating'));
+                        if (eating) {
+                            b.mixer.clipAction(eating).reset().setLoop(THREE.LoopRepeat).play();
+                        }
+                    }
+                }
+            }
+            toast.textContent = '🌿 The herd stops to graze';
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+            break;
+        }
+
+        case 'fox_frenzy': {
+            // Fox goes into a sprint burst
+            for (const b of boids) {
+                if (b.type === 'fox') {
+                    b.maxSpeed = BOID.maxSpeed * 2.5;
+                    setTimeout(() => { b.maxSpeed = BOID.maxSpeed * 1.4; }, 4000);
+                }
+            }
+            toast.textContent = '🦊 The fox charges!';
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+            break;
+        }
+
+        case 'scatter': {
+            // All animals scatter from center
+            for (const b of boids) {
+                const dx = b.model.position.x;
+                const dz = b.model.position.z;
+                const d = Math.sqrt(dx * dx + dz * dz) || 1;
+                b.velocity.x = (dx / d) * b.maxSpeed * 1.5;
+                b.velocity.z = (dz / d) * b.maxSpeed * 1.5;
+            }
+            toast.textContent = '💨 Something spooks the animals!';
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+            break;
+        }
+    }
+}
+
+// ─── Animation Loop ───
 let autoOrbit = true;
-let speedMultiplier = 1.5; // start faster
+let speedMultiplier = 1.5;
 
 function animate() {
     requestAnimationFrame(animate);
     const rawDelta = clock.getDelta();
     const delta = rawDelta * speedMultiplier;
+    const elapsed = clock.elapsedTime;
 
-    // Update all boids
+    // Weather
+    updateWeather(delta);
+
+    // Lightning during storms
+    if (weather.state === 'storm') {
+        lightningTimer -= delta;
+        if (lightningTimer <= 0) {
+            lightningLight.intensity = rand(3, 8);
+            lightningLight.position.set(rand(-15, 15), 25, rand(-15, 15));
+            lightningTimer = rand(1, 6);
+            setTimeout(() => { lightningLight.intensity = 0; }, 100);
+        }
+    } else {
+        lightningLight.intensity = 0;
+    }
+
+    // Random events
+    nextEventTime -= rawDelta;
+    if (nextEventTime <= 0) {
+        triggerEvent();
+        nextEventTime = rand(EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX);
+    }
+
+    // Wind effect on boids
     for (const boid of boids) {
+        boid.acceleration.x += weather.windX * 0.3;
+        boid.acceleration.z += weather.windZ * 0.3;
+        // Grazing slowdown
+        if (boid._grazeTimer > 0) {
+            boid._grazeTimer -= delta;
+            boid.velocity.multiplyScalar(0.9);
+        }
         boid.update(delta, boids);
     }
 
-    // Auto orbit camera
+    // Auto orbit camera — follow terrain height
     if (autoOrbit) {
-        const t = clock.elapsedTime * 0.12;
-        const radius = 22;
-        camera.position.x = Math.cos(t) * radius;
-        camera.position.z = Math.sin(t) * radius;
-        camera.position.y = 9 + Math.sin(t * 0.5) * 3;
-        controls.target.set(0, 1, 0);
+        const t = elapsed * 0.12;
+        const radius = 25;
+        const cx = Math.cos(t) * radius;
+        const cz = Math.sin(t) * radius;
+        const camY = getTerrainHeight(cx, cz) + 10 + Math.sin(t * 0.5) * 3;
+        camera.position.set(cx, camY, cz);
+        controls.target.set(0, 2, 0);
     }
 
     controls.update();
