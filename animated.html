@@ -92,12 +92,108 @@ const sun = new THREE.DirectionalLight(0xffeedd, 0.5);
 sun.position.set(8, 12, -6);
 scene.add(sun);
 
-// --- Ground ---
-const groundMat = new THREE.MeshBasicMaterial({ color: 0x4a8a2a });
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), groundMat);
-ground.rotation.x = -Math.PI / 2;
-ground.position.y = -0.01;
-scene.add(ground);
+// --- Terrain with procedural heightmap ---
+
+// Simple 2D noise (value noise with smoothstep interpolation)
+function hashNoise(x, z) {
+    let n = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
+    return n - Math.floor(n);
+}
+function smoothstep(t) { return t * t * (3 - 2 * t); }
+function valueNoise(x, z) {
+    const ix = Math.floor(x), iz = Math.floor(z);
+    const fx = x - ix, fz = z - iz;
+    const sx = smoothstep(fx), sz = smoothstep(fz);
+    const a = hashNoise(ix, iz), b = hashNoise(ix + 1, iz);
+    const c = hashNoise(ix, iz + 1), d = hashNoise(ix + 1, iz + 1);
+    return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
+}
+function fbm(x, z, octaves = 4) {
+    let val = 0, amp = 1, freq = 1, total = 0;
+    for (let i = 0; i < octaves; i++) {
+        val += valueNoise(x * freq, z * freq) * amp;
+        total += amp;
+        amp *= 0.5;
+        freq *= 2;
+    }
+    return val / total;
+}
+
+// Terrain parameters
+const TERRAIN_SIZE = 60;
+const TERRAIN_SEG = 128;
+const TERRAIN_HEIGHT = 4.0; // max hill height
+const TERRAIN_SCALE = 0.08; // noise frequency
+
+function getTerrainHeight(x, z) {
+    const h = fbm(x * TERRAIN_SCALE + 50, z * TERRAIN_SCALE + 50, 5);
+    // Flatten center for the meadow, hills at edges
+    const distFromCenter = Math.sqrt(x * x + z * z);
+    const edgeFactor = Math.min(distFromCenter / 15, 1);
+    return h * TERRAIN_HEIGHT * edgeFactor * edgeFactor;
+}
+
+function getTerrainNormal(x, z) {
+    const eps = 0.3;
+    const hL = getTerrainHeight(x - eps, z);
+    const hR = getTerrainHeight(x + eps, z);
+    const hD = getTerrainHeight(x, z - eps);
+    const hU = getTerrainHeight(x, z + eps);
+    const n = new THREE.Vector3(hL - hR, 2 * eps, hD - hU).normalize();
+    return n;
+}
+
+// Build terrain mesh
+const terrainGeo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEG, TERRAIN_SEG);
+terrainGeo.rotateX(-Math.PI / 2);
+
+const positions = terrainGeo.attributes.position;
+const colors = new Float32Array(positions.count * 3);
+
+for (let i = 0; i < positions.count; i++) {
+    const x = positions.getX(i);
+    const z = positions.getZ(i);
+    const y = getTerrainHeight(x, z);
+    positions.setY(i, y);
+
+    // Vertex colors based on height + slope
+    const slope = 1 - getTerrainNormal(x, z).y; // 0 = flat, 1 = vertical
+    const t = y / TERRAIN_HEIGHT;
+
+    // Green meadow -> brown dirt -> grey rock
+    let r, g, b;
+    if (t < 0.3) {
+        // Low: lush green
+        r = 0.22 + slope * 0.15;
+        g = 0.50 + fbm(x * 0.3, z * 0.3, 2) * 0.15;
+        b = 0.12;
+    } else if (t < 0.6) {
+        // Mid: yellow-green
+        const f = (t - 0.3) / 0.3;
+        r = 0.22 + f * 0.3;
+        g = 0.50 - f * 0.1;
+        b = 0.12 + f * 0.05;
+    } else {
+        // High: brown/rocky
+        const f = (t - 0.6) / 0.4;
+        r = 0.45 + f * 0.15;
+        g = 0.38 - f * 0.1;
+        b = 0.20 + f * 0.1;
+    }
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = g;
+    colors[i * 3 + 2] = b;
+}
+
+terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+terrainGeo.computeVertexNormals();
+
+const terrainMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+scene.add(terrain);
+
+// --- Obstacles (rocks and trees register as collision objects) ---
+const obstacles = []; // { position: Vector3, radius: number }
 
 // --- Load helpers ---
 const loader = new GLTFLoader();
@@ -236,6 +332,39 @@ class Boid {
         return steer;
     }
 
+    // Avoid obstacle collisions (trees, rocks)
+    avoidObstacles() {
+        const steer = new THREE.Vector3();
+        const avoidDist = 3.0;
+        for (const obs of obstacles) {
+            const dx = this.model.position.x - obs.position.x;
+            const dz = this.model.position.z - obs.position.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            const minDist = obs.radius + avoidDist;
+            if (d < minDist && d > 0.01) {
+                // Push away, stronger when closer
+                const strength = (1 - d / minDist) * 4.0;
+                steer.x += (dx / d) * strength;
+                steer.z += (dz / d) * strength;
+            }
+        }
+        return steer;
+    }
+
+    // Slope force: slide downhill slightly, avoid steep climbs
+    slopeForce() {
+        const pos = this.model.position;
+        const normal = getTerrainNormal(pos.x, pos.z);
+        // Project normal onto XZ plane = downhill direction
+        const downhill = new THREE.Vector3(-normal.x, 0, -normal.z);
+        const steepness = downhill.length();
+        // Slow down on steep slopes, push downhill
+        if (steepness > 0.2) {
+            return downhill.normalize().multiplyScalar(steepness * 2.0);
+        }
+        return new THREE.Vector3();
+    }
+
     // Gentle random wander
     wander() {
         this.wanderAngle += rand(-0.3, 0.3);
@@ -285,13 +414,32 @@ class Boid {
         // Stay in bounds
         this.applyForce(this.boundaries());
 
+        // Avoid obstacles (trees, rocks)
+        this.applyForce(this.avoidObstacles());
+
+        // Slope physics
+        this.applyForce(this.slopeForce());
+
         // Integrate
         this.velocity.add(this.acceleration.multiplyScalar(delta));
-        this.velocity.y = 0; // stay on ground
-        this.velocity.clampLength(0, this.maxSpeed);
+        this.velocity.y = 0; // XZ movement only
+        // Slow down on steep terrain
+        const terrainNormal = getTerrainNormal(this.model.position.x, this.model.position.z);
+        const slopeSlowdown = Math.max(0.3, terrainNormal.y); // flatter = faster
+        this.velocity.clampLength(0, this.maxSpeed * slopeSlowdown);
 
         this.model.position.add(this.velocity.clone().multiplyScalar(delta));
-        this.model.position.y = 0;
+
+        // Snap to terrain height (ground following)
+        const groundY = getTerrainHeight(this.model.position.x, this.model.position.z);
+        this.model.position.y = groundY;
+
+        // Tilt model to match terrain slope
+        const normal = getTerrainNormal(this.model.position.x, this.model.position.z);
+        // Pitch forward/backward based on slope in movement direction
+        const moveDir = this.velocity.clone().normalize();
+        const slopePitch = -Math.asin(normal.x * moveDir.x + normal.z * moveDir.z) * 0.5;
+        this.model.rotation.x = slopePitch;
 
         // Face direction of movement
         if (this.velocity.length() > 0.1) {
@@ -313,6 +461,9 @@ class Boid {
 }
 
 function loadBoid(url, position, scale, animName, type) {
+    // Snap to terrain
+    position.y = getTerrainHeight(position.x, position.z);
+
     return new Promise((resolve) => {
         loader.load(url, (gltf) => {
             const model = gltf.scene;
@@ -345,7 +496,10 @@ function loadBoid(url, position, scale, animName, type) {
     });
 }
 
-function loadNature(url, position, rotY, scale) {
+function loadNature(url, position, rotY, scale, collisionRadius = 0) {
+    // Place on terrain
+    position.y = getTerrainHeight(position.x, position.z);
+
     loader.load(url, (gltf) => {
         const model = gltf.scene;
         model.position.copy(position);
@@ -360,36 +514,44 @@ function loadNature(url, position, rotY, scale) {
         });
         scene.add(model);
     });
+
+    // Register as obstacle for collision
+    if (collisionRadius > 0) {
+        obstacles.push({ position: position.clone(), radius: collisionRadius });
+    }
 }
 
 // --- Scatter nature ---
 const rand = (min, max) => min + Math.random() * (max - min);
 const natBase = 'models/nature/';
 
+// Trees — register as collision obstacles
 for (let i = 0; i < 8; i++) {
     const angle = (i / 8) * Math.PI * 2;
     const r = 18 + rand(-3, 3);
-    loadNature(natBase + 'CommonTree_1.glb', new THREE.Vector3(Math.cos(angle)*r, 0, Math.sin(angle)*r), rand(0, 6.28), rand(1.5, 2.5));
+    loadNature(natBase + 'CommonTree_1.glb', new THREE.Vector3(Math.cos(angle)*r, 0, Math.sin(angle)*r), rand(0, 6.28), rand(1.5, 2.5), 1.5);
 }
 for (let i = 0; i < 5; i++) {
     const angle = (i / 5) * Math.PI * 2 + 0.3;
     const r = 22 + rand(-2, 2);
-    loadNature(natBase + 'PineTree_1.glb', new THREE.Vector3(Math.cos(angle)*r, 0, Math.sin(angle)*r), rand(0, 6.28), rand(2, 3));
+    loadNature(natBase + 'PineTree_1.glb', new THREE.Vector3(Math.cos(angle)*r, 0, Math.sin(angle)*r), rand(0, 6.28), rand(2, 3), 1.2);
 }
 for (let i = 0; i < 3; i++) {
-    loadNature(natBase + 'BirchTree_1.glb', new THREE.Vector3(rand(-15, -8), 0, rand(-5, 5)), rand(0, 6.28), rand(1.5, 2.2));
+    loadNature(natBase + 'BirchTree_1.glb', new THREE.Vector3(rand(-15, -8), 0, rand(-5, 5)), rand(0, 6.28), rand(1.5, 2.2), 1.0);
 }
+// Grass, flowers — no collision
 for (let i = 0; i < 20; i++) {
     loadNature(natBase + 'Grass.glb', new THREE.Vector3(rand(-12, 12), 0, rand(-12, 12)), rand(0, 6.28), rand(0.8, 1.5));
 }
 for (let i = 0; i < 10; i++) {
-    loadNature(natBase + 'Bush_1.glb', new THREE.Vector3(rand(-15, 15), 0, rand(-15, 15)), rand(0, 6.28), rand(1, 1.5));
+    loadNature(natBase + 'Bush_1.glb', new THREE.Vector3(rand(-15, 15), 0, rand(-15, 15)), rand(0, 6.28), rand(1, 1.5), 0.8);
 }
 for (let i = 0; i < 8; i++) {
     loadNature(natBase + 'Flowers.glb', new THREE.Vector3(rand(-10, 10), 0, rand(-10, 10)), rand(0, 6.28), rand(0.6, 1.2));
 }
+// Rocks — solid obstacles
 for (let i = 0; i < 5; i++) {
-    loadNature(natBase + ['Rock_1.glb', 'Rock_Moss_1.glb'][i % 2], new THREE.Vector3(rand(-15, 15), 0, rand(-15, 15)), rand(0, 6.28), rand(1.5, 3));
+    loadNature(natBase + ['Rock_1.glb', 'Rock_Moss_1.glb'][i % 2], new THREE.Vector3(rand(-15, 15), 0, rand(-15, 15)), rand(0, 6.28), rand(1.5, 3), 1.5);
 }
 
 // --- Spawn boids ---
