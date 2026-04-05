@@ -87,6 +87,7 @@
             backdrop-filter: blur(10px);
         }
 
+        .viewer-controls select,
         .viewer-controls button {
             background: #21262d;
             color: #e0e0e0;
@@ -216,6 +217,10 @@
         <div class="viewer-hint" id="hint">Click and drag to orbit &middot; Scroll to zoom &middot; Right-click to pan</div>
         <canvas id="canvas-3d"></canvas>
         <div class="viewer-controls">
+            <select id="model-select">
+                <option value="models/duplo_castle.glb" selected>Duplo Castle</option>
+                <option value="models/hello_robot.glb">Hello Robot</option>
+            </select>
             <button id="btn-reset">Reset View</button>
             <button id="btn-spin" class="active">Auto Spin</button>
             <button id="btn-wireframe">Wireframe</button>
@@ -225,6 +230,13 @@
     <!-- Render Gallery -->
     <div id="gallery-panel" class="panel">
         <div class="gallery-grid">
+            <div class="gallery-card">
+                <img src="renders/duplo_castle.png" alt="Duplo Castle">
+                <div class="caption">
+                    <h3>Duplo Castle</h3>
+                    <p>Lego Duplo castle with transparent walls, sparkly gems, corner towers with cone roofs, gradient sky &mdash; Cycles 200 samples</p>
+                </div>
+            </div>
             <div class="gallery-card">
                 <img src="renders/hello_robot.png" alt="Hello Robot">
                 <div class="caption">
@@ -291,30 +303,63 @@
         grid.position.y = -0.62;
         scene.add(grid);
 
-        // --- Load model ---
+        // --- Model loading ---
         let model = null;
         const loader = new GLTFLoader();
-        loader.load(
-            'models/hello_robot.glb',
-            (gltf) => {
-                model = gltf.scene;
-                scene.add(model);
-                document.getElementById('loading').classList.add('hidden');
 
-                // Fade out hint after 4 seconds
-                setTimeout(() => {
-                    document.getElementById('hint').style.opacity = '0';
-                }, 4000);
-            },
-            (progress) => {
-                // Loading progress
-            },
-            (error) => {
-                console.error('Error loading model:', error);
-                document.getElementById('loading').innerHTML =
-                    '<p style="color:#f85149">Failed to load model. Run from a local server:<br><code>python3 -m http.server 8000</code></p>';
+        const modelDefaults = {
+            'models/duplo_castle.glb': { cam: [15, 10, 12], target: [0, 2, 0] },
+            'models/hello_robot.glb': { cam: [4, 3, 5], target: [0, 1, 0] },
+        };
+
+        function loadModel(path) {
+            // Remove old model
+            if (model) {
+                scene.remove(model);
+                model = null;
             }
-        );
+            document.getElementById('loading').classList.remove('hidden');
+
+            loader.load(
+                path,
+                (gltf) => {
+                    model = gltf.scene;
+                    scene.add(model);
+                    document.getElementById('loading').classList.add('hidden');
+
+                    // Reset camera for this model
+                    const def = modelDefaults[path] || { cam: [5, 4, 5], target: [0, 1, 0] };
+                    camera.position.set(...def.cam);
+                    controls.target.set(...def.target);
+                    controls.update();
+
+                    // Apply wireframe state
+                    if (wireframe) {
+                        model.traverse((child) => {
+                            if (child.isMesh) child.material.wireframe = true;
+                        });
+                    }
+
+                    setTimeout(() => {
+                        document.getElementById('hint').style.opacity = '0';
+                    }, 4000);
+                },
+                undefined,
+                (error) => {
+                    console.error('Error loading model:', error);
+                    document.getElementById('loading').innerHTML =
+                        '<p style="color:#f85149">Failed to load model. Run from a local server:<br><code>python3 -m http.server 8000</code></p>';
+                }
+            );
+        }
+
+        // Load default model
+        loadModel(document.getElementById('model-select').value);
+
+        // Model switcher
+        document.getElementById('model-select').addEventListener('change', (e) => {
+            loadModel(e.target.value);
+        });
 
         // --- Controls ---
         let autoSpin = true;
@@ -326,8 +371,10 @@
         });
 
         document.getElementById('btn-reset').addEventListener('click', () => {
-            camera.position.set(4, 3, 5);
-            controls.target.set(0, 1.0, 0);
+            const path = document.getElementById('model-select').value;
+            const def = modelDefaults[path] || { cam: [5, 4, 5], target: [0, 1, 0] };
+            camera.position.set(...def.cam);
+            controls.target.set(...def.target);
             controls.update();
         });
 
