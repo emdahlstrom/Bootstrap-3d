@@ -275,10 +275,8 @@
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(window.innerWidth, window.innerHeight - 180);
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 0.8;
-        renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.NoToneMapping;
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
 
         // --- Scene ---
         const scene = new THREE.Scene();
@@ -312,28 +310,17 @@
         controls.maxDistance = 60;
         controls.update();
 
-        // --- Lighting (simple and controlled) ---
-        // Ambient for base visibility
-        const ambient = new THREE.AmbientLight(0x8090a0, 0.6);
+        // --- Lighting (minimal to avoid washout) ---
+        const ambient = new THREE.AmbientLight(0xffffff, 0.4);
         scene.add(ambient);
 
-        // Sun (key light with shadows)
-        const sun = new THREE.DirectionalLight(0xfff2e0, 1.5);
+        // Sun key light
+        const sun = new THREE.DirectionalLight(0xffffff, 0.8);
         sun.position.set(8, 12, -6);
-        sun.castShadow = true;
-        sun.shadow.mapSize.width = 2048;
-        sun.shadow.mapSize.height = 2048;
-        sun.shadow.camera.near = 0.5;
-        sun.shadow.camera.far = 40;
-        sun.shadow.camera.left = -15;
-        sun.shadow.camera.right = 15;
-        sun.shadow.camera.top = 15;
-        sun.shadow.camera.bottom = -15;
-        sun.shadow.bias = -0.001;
         scene.add(sun);
 
         // Fill light from opposite side
-        const fill = new THREE.DirectionalLight(0xc0d0e8, 0.4);
+        const fill = new THREE.DirectionalLight(0x8899bb, 0.3);
         fill.position.set(-6, 4, 4);
         scene.add(fill);
 
@@ -366,7 +353,6 @@
                 const mat = child.material;
                 if (!mat) return;
 
-                // No env map reflections
                 mat.envMapIntensity = 0;
 
                 // Handle transparent materials
@@ -380,6 +366,18 @@
                 // Cap emissive
                 if (mat.emissive && mat.emissiveIntensity > 1) {
                     mat.emissiveIntensity = 1.0;
+                }
+
+                // Debug: log material info
+                if (mat.name) {
+                    console.log(`Material: ${mat.name}`, {
+                        color: mat.color?.getHexString(),
+                        metallic: mat.metalness,
+                        roughness: mat.roughness,
+                        vertexColors: mat.vertexColors,
+                        map: !!mat.map,
+                        opacity: mat.opacity
+                    });
                 }
 
                 mat.needsUpdate = true;
