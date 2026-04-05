@@ -9,14 +9,20 @@ class SneakState extends YUKA.State {
         showToast('🔫 A hunter appears!');
     }
     execute(hunter, delta) {
-        const pos = hunter.position;
-        const dist = Math.sqrt(pos.x ** 2 + pos.z ** 2);
-        if (dist > 2) {
-            hunter.velocity.set(-pos.x / dist * 1.2, 0, -pos.z / dist * 1.2);
-        } else {
-            hunter.velocity.set(0, 0, 0);
+        // Walk toward the exit point (opposite edge), crossing the whole meadow
+        const target = hunter._exitTarget;
+        if (target) {
+            const dx = target.x - hunter.position.x;
+            const dz = target.z - hunter.position.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            if (d > 2) {
+                hunter.velocity.set((dx / d) * 1.5, 0, (dz / d) * 1.5);
+            } else {
+                // Reached the other side — just leave
+                hunter.stateMachine.changeTo('gone');
+                return;
+            }
         }
-        // Check if detected
         if (hunter._attackerCount > 0 || hunter._confidence < 0.7) {
             hunter.stateMachine.changeTo('panic');
         }
@@ -173,6 +179,9 @@ export function spawnHunter(hunter) {
     const edge = BOUNDS + 3;
     hunter.position.set(Math.cos(angle) * edge, 0, Math.sin(angle) * edge);
     hunter.position.y = getHeight(hunter.position.x, hunter.position.z);
+    // Exit target: opposite side of the meadow (cross the whole area)
+    const exitAngle = angle + Math.PI + rand(-0.5, 0.5);
+    hunter._exitTarget = { x: Math.cos(exitAngle) * edge, z: Math.sin(exitAngle) * edge };
     hunter.velocity.set(0, 0, 0);
     hunter._confidence = 1.0;
     hunter._attackerCount = 0;
@@ -195,12 +204,12 @@ export function updateHunter(hunter, entityManager, delta) {
         const dx = pos.x - entity.position.x;
         const dz = pos.z - entity.position.z;
         const d = Math.sqrt(dx * dx + dz * dz);
-        if (d < 10) {
+        if (d < 16) {
             const charge = 6 * (1 - d / 10);
             entity.velocity.x -= (dx / d) * charge * delta;
             entity.velocity.z -= (dz / d) * charge * delta;
         }
-        if (d < 4) {
+        if (d < 5) {
             hunter._attackerCount++;
             hunter._confidence -= delta * 0.4;
         }

@@ -26,19 +26,28 @@ function fbm(x, z, octaves = 4) {
     return val / total;
 }
 
-const SIZE = 60;
-const SEGMENTS = 128;
+const SIZE = 80;
+const SEGMENTS = 150;
 const MAX_HEIGHT = 10.0;
 const SCALE = 0.06;
+const ISLAND_RADIUS = 22;
+const OCEAN_LEVEL = -1.5;
 
 export function getHeight(x, z) {
     const h = fbm(x * SCALE + 50, z * SCALE + 50, 5);
     const ridge = Math.exp(-((x + 12) ** 2) / 30) * 3.0;
     const valley = -Math.exp(-(z * z) / 60) * 1.5;
     const dist = Math.sqrt(x * x + z * z);
-    const edge = Math.min(dist / 12, 1);
-    return (h * MAX_HEIGHT * edge + ridge + valley) * edge;
+
+    // Island shape: smooth falloff at edges into ocean
+    const islandFactor = 1 - smoothstep(Math.max((dist - ISLAND_RADIUS) / 8, 0));
+    const landHeight = (h * MAX_HEIGHT * Math.min(dist / 12, 1) + ridge + valley) * Math.min(dist / 12, 1);
+
+    // Blend between land and ocean floor
+    return landHeight * islandFactor + OCEAN_LEVEL * (1 - islandFactor);
 }
+
+function smoothstep(t) { return t * t * (3 - 2 * t); }
 
 // Reusable vector for normal output
 const _nrm = new THREE.Vector3();
@@ -66,7 +75,13 @@ export function createMesh() {
         const t = Math.min(y / MAX_HEIGHT, 1);
         let r, g, b;
 
-        if (t < 0.3) {
+        // Below water: sandy ocean floor
+        if (y < OCEAN_LEVEL + 0.3) {
+            r = 0.15; g = 0.25; b = 0.35;
+        } else if (y < 0.2) {
+            // Beach/shore
+            r = 0.7; g = 0.65; b = 0.45;
+        } else if (t < 0.3) {
             r = 0.22 + slope * 0.15;
             g = 0.50 + fbm(x * 0.3, z * 0.3, 2) * 0.15;
             b = 0.12;
@@ -82,5 +97,21 @@ export function createMesh() {
 
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geo.computeVertexNormals();
-    return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true }));
+
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true })));
+
+    // Ocean water plane
+    const waterGeo = new THREE.PlaneGeometry(200, 200);
+    waterGeo.rotateX(-Math.PI / 2);
+    const waterMat = new THREE.MeshBasicMaterial({
+        color: 0x2266aa,
+        transparent: true,
+        opacity: 0.7,
+    });
+    const water = new THREE.Mesh(waterGeo, waterMat);
+    water.position.y = OCEAN_LEVEL + 0.05;
+    group.add(water);
+
+    return group;
 }

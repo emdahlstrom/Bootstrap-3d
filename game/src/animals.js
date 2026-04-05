@@ -153,7 +153,7 @@ export function updateAnimals(entityManager, delta) {
                     nearestDeerToFox = other;
                 }
             }
-            if (nearestDeerToFox && nearestDeerDist < 15) {
+            if (nearestDeerToFox && nearestDeerDist < 20) {
                 entity._pursuitBehavior.evader = nearestDeerToFox;
                 entity._pursuitBehavior.active = true;
             } else {
@@ -166,7 +166,7 @@ export function updateAnimals(entityManager, delta) {
             for (const other of entities) {
                 if (other._type !== 'fox') continue;
                 const d = entity.position.distanceTo(other.position);
-                if (d < 8) {
+                if (d < 12) {
                     const flee = entity.position.clone().sub(other.position).normalize();
                     const strength = 4.0 * (1 - d / 8);
                     entity.velocity.x += flee.x * strength;

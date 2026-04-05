@@ -11,6 +11,7 @@ import { createEventSystem } from './events.js';
 import { loadAllNature } from './nature.js';
 import { createPlayerController } from './player.js';
 import { rand } from './utils.js';
+import { BUILD } from './version.js';
 
 // ─── Renderer ───
 const canvas = document.getElementById('canvas');
@@ -76,20 +77,32 @@ loadAllNature(loader, scene, obstacles);
 // Animals — load GLTFs then spawn
 const deerGltfP = new Promise(r => loader.load('/animals/Deer.glb', r));
 const stagGltfP = new Promise(r => loader.load('/animals/Stag.glb', r));
-const foxGltfP = new Promise(r => loader.load('/animals/Fox.glb', r));
+const foxGltfP  = new Promise(r => loader.load('/animals/Fox.glb', r));
+const wolfGltfP = new Promise(r => loader.load('/animals/Wolf.glb', r));
+const huskyGltfP = new Promise(r => loader.load('/animals/Husky.glb', r));
+const donkeyGltfP = new Promise(r => loader.load('/animals/Donkey.glb', r));
 
-Promise.all([deerGltfP, stagGltfP, foxGltfP]).then(([deerGltf, stagGltf, foxGltf]) => {
-    // Deer herd
+Promise.all([deerGltfP, stagGltfP, foxGltfP, wolfGltfP, huskyGltfP, donkeyGltfP])
+    .then(([deerGltf, stagGltf, foxGltf, wolfGltf, huskyGltf, donkeyGltf]) => {
+    // Deer herd — spread out more
     for (let i = 0; i < 5; i++) {
-        const a = rand(0, Math.PI * 2), r = rand(2, 6);
+        const a = rand(0, Math.PI * 2), r = rand(4, 12);
         createDeer(entityManager, scene, loader, deerGltf, { x: Math.cos(a) * r, z: Math.sin(a) * r });
     }
-    // Stags
+    // Stags — spread across meadow
     for (let i = 0; i < 2; i++) {
-        createDeer(entityManager, scene, loader, stagGltf, { x: rand(-8, -4), z: rand(-6, 6) });
+        createDeer(entityManager, scene, loader, stagGltf, { x: rand(-12, -4), z: rand(-10, 10) });
+    }
+    // Donkeys
+    for (let i = 0; i < 2; i++) {
+        createDeer(entityManager, scene, loader, donkeyGltf, { x: rand(4, 10), z: rand(-8, 8) });
     }
     // Fox
-    createFox(entityManager, scene, loader, foxGltf, { x: 12, z: 0 });
+    createFox(entityManager, scene, loader, foxGltf, { x: 14, z: 0 });
+    // Wolf — second predator
+    createFox(entityManager, scene, loader, wolfGltf, { x: -14, z: 5 });
+    // Husky — friendly wanderer (classified as deer for flocking)
+    createDeer(entityManager, scene, loader, huskyGltf, { x: 0, z: 10 });
 });
 
 // ─── Game Loop ───
@@ -219,6 +232,10 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+// Build number
+const buildEl = document.getElementById('build-number');
+if (buildEl) buildEl.textContent = `Build ${BUILD}`;
 
 setTimeout(() => {
     const info = document.getElementById('info');
