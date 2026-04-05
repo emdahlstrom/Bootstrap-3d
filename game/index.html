@@ -71,7 +71,23 @@
 <body>
     <div class="info" id="info">Tap an animal to control it · Drag to orbit · Scroll to zoom</div>
     <div id="event-toast"></div>
+    <div id="error-overlay" style="display:none;position:fixed;inset:0;background:#111;color:#f55;
+        font-family:monospace;font-size:0.8rem;padding:2rem;z-index:100;overflow:auto;white-space:pre-wrap"></div>
     <canvas id="canvas"></canvas>
+
+    <script>
+    // Catch ALL errors and show them on screen
+    window.onerror = function(msg, url, line, col, err) {
+        var el = document.getElementById('error-overlay');
+        el.style.display = 'block';
+        el.textContent += 'ERROR: ' + msg + '\n' + (url||'') + ':' + line + '\n' + (err&&err.stack||'') + '\n\n';
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+        var el = document.getElementById('error-overlay');
+        el.style.display = 'block';
+        el.textContent += 'PROMISE: ' + (e.reason&&e.reason.message||e.reason) + '\n' + (e.reason&&e.reason.stack||'') + '\n\n';
+    });
+    </script>
 
     <!-- Exit button -->
     <button id="btn-exit-animal">✕ Exit Animal</button>
